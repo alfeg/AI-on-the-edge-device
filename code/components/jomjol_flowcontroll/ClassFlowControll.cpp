@@ -282,6 +282,10 @@ ClassFlow* ClassFlowControll::CreateClassFlow(std::string _type)
         flowpostprocessing = (ClassFlowPostProcessing*) cfc;
     }
 
+    if (toUpper(_type).compare("[LLMFALLBACK]") == 0) {
+        cfc = new ClassFlowLLMFallback(&FlowControll);
+    }
+
     if (cfc) {                           
         // Attached only if it is not [AutoTimer], because this is for FlowControll
         FlowControll.push_back(cfc);

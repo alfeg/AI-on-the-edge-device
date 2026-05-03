@@ -21,6 +21,7 @@
 	#include "ClassFlowWebhook.h"
 #endif //ENABLE_WEBHOOK
 #include "ClassFlowCNNGeneral.h"
+#include "ClassFlowLLMFallback.h"
 
 class ClassFlowControll :
     public ClassFlow

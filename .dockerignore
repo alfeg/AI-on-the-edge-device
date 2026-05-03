@@ -1,0 +1,32 @@
+# Build outputs
+code/.pio/
+code/.pioenvs/
+
+# .git/ is intentionally NOT excluded.
+# It is required so that:
+#   - `git submodule update --init --recursive` can fetch submodule contents (builder stage)
+#   - `git rev-parse --short HEAD` can resolve the commit hash for the web UI (webui stage)
+# Each Dockerfile stage uses targeted COPY instructions, so only the
+# directories each stage actually needs are transferred.
+# If you downloaded a zip instead of cloning, run:
+#   git init && git submodule update --init --recursive
+# before building.
+
+# IDE / editor
+.idea/
+.vscode/
+*.code-workspace
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Docs / specs (not needed for build)
+docs/
+
+# Existing local artifact dirs
+html/
+demo/
+update/
+remote_setup/
+manual_setup/

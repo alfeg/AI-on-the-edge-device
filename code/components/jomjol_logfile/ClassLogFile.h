@@ -25,6 +25,7 @@ public:
     void WriteHeapInfo(std::string _id);
 
     void setLogLevel(esp_log_level_t _logLevel);
+    esp_log_level_t GetLogLevel() const { return loglevel; }
     void SetLogFileRetention(unsigned short _LogFileRetentionInDays);
     void SetDataLogRetention(unsigned short _DataLogRetentionInDays);
     void SetDataLogToSD(bool _doDataLogToSD);
