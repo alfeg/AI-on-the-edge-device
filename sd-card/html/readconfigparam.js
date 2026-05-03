@@ -142,7 +142,7 @@ function ParseConfig() {
     ParamAddValue(param, catname, "InitialRotate");
     ParamAddValue(param, catname, "SearchFieldX");
     ParamAddValue(param, catname, "SearchFieldY");
-    ParamAddValue(param, catname, "AlignmentAlgo");
+    ParamAddValue(param, catname, "AlignmentAlgo", 1, false, "default");
 
     var catname = "Digits";
     category[catname] = new Object();
@@ -237,6 +237,21 @@ function ParseConfig() {
     ParamAddValue(param, catname, "Uri");
     ParamAddValue(param, catname, "ApiKey");
     ParamAddValue(param, catname, "UploadImg");
+
+    var catname = "LLMFallback";
+    category[catname] = new Object();
+    category[catname]["enabled"] = false;
+    category[catname]["found"] = false;
+    param[catname] = new Object();
+    ParamAddValue(param, catname, "Provider");
+    ParamAddValue(param, catname, "ConfidenceThreshold");
+    ParamAddValue(param, catname, "TimeoutMs");
+    ParamAddValue(param, catname, "MaxTokens");
+    ParamAddValue(param, catname, "Endpoint");
+    ParamAddValue(param, catname, "ApiKey");
+    ParamAddValue(param, catname, "Model");
+    ParamAddValue(param, catname, "AdditionalHeaders");
+    ParamAddValue(param, catname, "Prompt");
 
     var catname = "GPIO";
     category[catname] = new Object();

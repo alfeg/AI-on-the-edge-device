@@ -2004,6 +2004,120 @@
             <td>$TOOLTIP_DataLogging_DataFilesRetention</td>
         </tr>
 
+        <!------------- LLMFallback ------------------>
+        <tr style="border-bottom: 2px solid lightgray;">
+            <td colspan="3" style="padding-left: 0px; padding-bottom: 3px;">
+                <h4>
+                <input type="checkbox" id="Category_LLMFallback_enabled" value="1" onclick="UpdateAfterCategoryCheck()" unchecked>
+                <label for=Category_LLMFallback_enabled>LLM Fallback (AI digit recognition)</label>
+                </h4>
+            </td>
+        </tr>
+
+        <tr class="LLMFallbackItem">
+            <td class="indent1">
+                <input type="checkbox" id="LLMFallback_Provider_enabled" value="1" onclick='InvertEnableItem("LLMFallback", "Provider")' unchecked>
+                <label for=LLMFallback_Provider_enabled><class id="LLMFallback_Provider_text" style="color:black;">Provider</class></label>
+            </td>
+            <td>
+                <select id="LLMFallback_Provider_value1">
+                    <option value="OpenAI">OpenAI</option>
+                    <option value="Ollama">Ollama</option>
+                </select>
+            </td>
+            <td>$TOOLTIP_LLMFallback_Provider</td>
+        </tr>
+
+        <tr class="LLMFallbackItem">
+            <td class="indent1">
+                <input type="checkbox" id="LLMFallback_ConfidenceThreshold_enabled" value="1" onclick='InvertEnableItem("LLMFallback", "ConfidenceThreshold")' unchecked>
+                <label for=LLMFallback_ConfidenceThreshold_enabled><class id="LLMFallback_ConfidenceThreshold_text" style="color:black;">Confidence Threshold</class></label>
+            </td>
+            <td>
+                <input required type="number" id="LLMFallback_ConfidenceThreshold_value1" min="0" max="1" step="0.01">
+            </td>
+            <td>$TOOLTIP_LLMFallback_ConfidenceThreshold</td>
+        </tr>
+
+        <tr class="LLMFallbackItem expert">
+            <td class="indent1">
+                <input type="checkbox" id="LLMFallback_TimeoutMs_enabled" value="1" onclick='InvertEnableItem("LLMFallback", "TimeoutMs")' unchecked>
+                <label for=LLMFallback_TimeoutMs_enabled><class id="LLMFallback_TimeoutMs_text" style="color:black;">Timeout (ms)</class></label>
+            </td>
+            <td>
+                <input required type="number" id="LLMFallback_TimeoutMs_value1" min="1000" step="100">
+            </td>
+            <td>$TOOLTIP_LLMFallback_TimeoutMs</td>
+        </tr>
+
+        <tr class="LLMFallbackItem expert">
+            <td class="indent1">
+                <input type="checkbox" id="LLMFallback_MaxTokens_enabled" value="1" onclick='InvertEnableItem("LLMFallback", "MaxTokens")' unchecked>
+                <label for=LLMFallback_MaxTokens_enabled><class id="LLMFallback_MaxTokens_text" style="color:black;">Max Tokens</class></label>
+            </td>
+            <td>
+                <input required type="number" id="LLMFallback_MaxTokens_value1" min="1" step="1">
+            </td>
+            <td>$TOOLTIP_LLMFallback_MaxTokens</td>
+        </tr>
+
+        <tr class="LLMFallbackItem">
+            <td class="indent1">
+                <input type="checkbox" id="LLMFallback_Endpoint_enabled" value="1" onclick='InvertEnableItem("LLMFallback", "Endpoint")' unchecked>
+                <label for=LLMFallback_Endpoint_enabled><class id="LLMFallback_Endpoint_text" style="color:black;">Endpoint</class></label>
+            </td>
+            <td>
+                <input required type="text" id="LLMFallback_Endpoint_value1">
+            </td>
+            <td>$TOOLTIP_LLMFallback_Endpoint</td>
+        </tr>
+
+        <tr class="LLMFallbackItem">
+            <td class="indent1">
+                <input type="checkbox" id="LLMFallback_ApiKey_enabled" value="1" onclick='InvertEnableItem("LLMFallback", "ApiKey")' unchecked>
+                <label for=LLMFallback_ApiKey_enabled><class id="LLMFallback_ApiKey_text" style="color:black;">API Key</class></label>
+            </td>
+            <td>
+                <input required type="text" id="LLMFallback_ApiKey_value1">
+            </td>
+            <td>$TOOLTIP_LLMFallback_ApiKey</td>
+        </tr>
+
+        <tr class="LLMFallbackItem">
+            <td class="indent1">
+                <input type="checkbox" id="LLMFallback_Model_enabled" value="1" onclick='InvertEnableItem("LLMFallback", "Model")' unchecked>
+                <label for=LLMFallback_Model_enabled><class id="LLMFallback_Model_text" style="color:black;">Model</class></label>
+            </td>
+            <td>
+                <input required type="text" id="LLMFallback_Model_value1">
+            </td>
+            <td>$TOOLTIP_LLMFallback_Model</td>
+        </tr>
+
+        <tr class="LLMFallbackItem expert">
+            <td class="indent1">
+                <input type="checkbox" id="LLMFallback_AdditionalHeaders_enabled" value="1" onclick='InvertEnableItem("LLMFallback", "AdditionalHeaders")' unchecked>
+                <label for=LLMFallback_AdditionalHeaders_enabled><class id="LLMFallback_AdditionalHeaders_text" style="color:black;">Additional Headers</class></label>
+            </td>
+            <td>
+                <input required type="text" id="LLMFallback_AdditionalHeaders_value1">
+            </td>
+            <td>$TOOLTIP_LLMFallback_AdditionalHeaders</td>
+        </tr>
+
+        <tr class="LLMFallbackItem expert">
+            <td class="indent1">
+                <input type="checkbox" id="LLMFallback_Prompt_enabled" value="1" onclick='InvertEnableItem("LLMFallback", "Prompt")' unchecked>
+                <label for=LLMFallback_Prompt_enabled><class id="LLMFallback_Prompt_text" style="color:black;">Prompt</class></label>
+                <br>
+                <button type="button" style="margin-top:4px; font-size:0.8em;" onclick="resetLLMPrompt()">Reset to default</button>
+            </td>
+            <td>
+                <textarea id="LLMFallback_Prompt_value1" rows="4" style="width:100%;"></textarea>
+            </td>
+            <td>$TOOLTIP_LLMFallback_Prompt</td>
+        </tr>
+
         <!------------- Debug Logging ------------------>
         <tr style="border-bottom: 2px solid lightgray;">
             <td colspan="3" style="padding-left: 0px; padding-bottom: 3px;"><h4>Debug</h4></td>
@@ -2284,6 +2398,17 @@ function UpdateInputIndividual(sel) {
     WriteParameter(param, category, "MQTT", "DomoticzIDX", true, NUNBERSAkt);
 }
 
+var LLM_DEFAULT_PROMPT = "This image shows a single digit on a utility meter display. " +
+    "It's a rolling meter.  Some parts of other numbers maybe visible. " +
+    "Reply with ONLY the single digit (0-9) you see. " +
+    "If you cannot determine the digit, reply with the letter N.";
+
+function resetLLMPrompt() {
+    document.getElementById("LLMFallback_Prompt_value1").value = LLM_DEFAULT_PROMPT;
+    document.getElementById("LLMFallback_Prompt_enabled").checked = true;
+    InvertEnableItem("LLMFallback", "Prompt");
+}
+
 function UpdateInput() {
     document.getElementById("Category_Digits_enabled").checked = category["Digits"]["enabled"];
     setVisible("DigitItem", category["Digits"]["enabled"]);
@@ -2305,6 +2430,9 @@ function UpdateInput() {
 
     document.getElementById("Category_Webhook_enabled").checked = category["Webhook"]["enabled"];
     setVisible("WebhookItem", category["Webhook"]["enabled"]);
+
+    document.getElementById("Category_LLMFallback_enabled").checked = category["LLMFallback"]["enabled"];
+    setVisible("LLMFallbackItem", category["LLMFallback"]["enabled"]);
 
     WriteParameter(param, category, "TakeImage", "RawImagesLocation", true);
     WriteParameter(param, category, "TakeImage", "RawImagesRetention", true);
@@ -2390,6 +2518,16 @@ function UpdateInput() {
     WriteParameter(param, category, "Webhook", "Uri", true);	
     WriteParameter(param, category, "Webhook", "ApiKey", true);
     WriteParameter(param, category, "Webhook", "UploadImg", false);
+
+    WriteParameter(param, category, "LLMFallback", "Provider", true);
+    WriteParameter(param, category, "LLMFallback", "ConfidenceThreshold", true);
+    WriteParameter(param, category, "LLMFallback", "TimeoutMs", true);
+    WriteParameter(param, category, "LLMFallback", "MaxTokens", true);
+    WriteParameter(param, category, "LLMFallback", "Endpoint", true);
+    WriteParameter(param, category, "LLMFallback", "ApiKey", true);
+    WriteParameter(param, category, "LLMFallback", "Model", true);
+    WriteParameter(param, category, "LLMFallback", "AdditionalHeaders", true);
+    WriteParameter(param, category, "LLMFallback", "Prompt", true);
 
     WriteParameter(param, category, "GPIO", "IO0", true);
     WriteParameter(param, category, "GPIO", "IO1", true);
@@ -2559,6 +2697,22 @@ function ReadParameterAll() {
     ReadParameter(param, "Webhook", "ApiKey", true);
     ReadParameter(param, "Webhook", "UploadImg", false);
 
+    category["LLMFallback"]["enabled"] = document.getElementById("Category_LLMFallback_enabled").checked;
+    ReadParameter(param, "LLMFallback", "Provider", true);
+    ReadParameter(param, "LLMFallback", "ConfidenceThreshold", true);
+    ReadParameter(param, "LLMFallback", "TimeoutMs", true);
+    ReadParameter(param, "LLMFallback", "MaxTokens", true);
+    ReadParameter(param, "LLMFallback", "Endpoint", true);
+    ReadParameter(param, "LLMFallback", "ApiKey", true);
+    ReadParameter(param, "LLMFallback", "Model", true);
+    ReadParameter(param, "LLMFallback", "AdditionalHeaders", true);
+    ReadParameter(param, "LLMFallback", "Prompt", true);
+    // Show default prompt if not configured
+    if (!document.getElementById("LLMFallback_Prompt_enabled").checked ||
+        !document.getElementById("LLMFallback_Prompt_value1").value.trim()) {
+        document.getElementById("LLMFallback_Prompt_value1").value = LLM_DEFAULT_PROMPT;
+    }
+
     ReadParameter(param, "GPIO", "IO0", true);
     ReadParameter(param, "GPIO", "IO1", true);
     ReadParameter(param, "GPIO", "IO3", true);
@@ -2608,6 +2762,7 @@ function UpdateAfterCategoryCheck() {
     category["InfluxDBv2"]["enabled"] = document.getElementById("Category_InfluxDBv2_enabled").checked;
     category["GPIO"]["enabled"] = document.getElementById("Category_GPIO_enabled").checked;
     category["Webhook"]["enabled"] = document.getElementById("Category_Webhook_enabled").checked;
+    category["LLMFallback"]["enabled"] = document.getElementById("Category_LLMFallback_enabled").checked;
 
     UpdateInput();
     var sel = document.getElementById("Numbers_value1");
