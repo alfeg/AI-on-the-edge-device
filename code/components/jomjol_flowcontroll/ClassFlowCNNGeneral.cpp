@@ -663,8 +663,10 @@ bool ClassFlowCNNGeneral::doNeuralNetwork(string time) {
         return false;
     }
 
-    // Collect ROIs that need LLM fallback — processed after TFLite is freed
-    struct LLMPendingROI { int n; int roi; };
+    // Collect ROIs that need LLM fallback — processed after TFLite is freed.
+    // 'context' explains *why* this ROI was queued; it's logged at queue time
+    // and passed into LLMFallbackQueryDigit so it lands in the transcript.
+    struct LLMPendingROI { int n; int roi; std::string context; };
     std::vector<LLMPendingROI> llmPending;
 
     // For each NUMBER
@@ -735,12 +737,23 @@ bool ClassFlowCNNGeneral::doNeuralNetwork(string time) {
 
                         if (LLMFallbackIsActive()) {
                             int klass = GENERAL[n]->ROI[roi]->result_klasse;
+                            float conf = (klass >= 0 && klass < 10) ? tflite->GetOutputValue(klass) : 0.0f;
+                            float threshold = LLMFallbackGetConfidenceThreshold();
                             bool hardFail = (klass < 0 || klass >= 10);
-                            bool lowConf  = (!hardFail
-                                            && LLMFallbackGetConfidenceThreshold() > 0.0f
-                                            && tflite->GetOutputValue(klass) < LLMFallbackGetConfidenceThreshold());
+                            bool lowConf  = (!hardFail && threshold > 0.0f && conf < threshold);
                             if (hardFail || lowConf) {
-                                llmPending.push_back({n, roi});
+                                char ctx[128];
+                                if (hardFail) {
+                                    snprintf(ctx, sizeof(ctx),
+                                        "type=Digit class=%d reason=hardFail (out of 0-9)", klass);
+                                } else {
+                                    snprintf(ctx, sizeof(ctx),
+                                        "type=Digit class=%d conf=%.4f reason=lowConf threshold=%.4f",
+                                        klass, conf, threshold);
+                                }
+                                LogFile.WriteToFile(ESP_LOG_INFO, TAG,
+                                    "LLM queue: ROI '" + GENERAL[n]->ROI[roi]->name + "' " + ctx);
+                                llmPending.push_back({n, roi, ctx});
                             }
                         }
                     } break;
@@ -814,12 +827,23 @@ bool ClassFlowCNNGeneral::doNeuralNetwork(string time) {
                         ESP_LOGD(TAG, "Result General(Analog)%i: %f", roi, GENERAL[n]->ROI[roi]->result_float);
 
                         if (LLMFallbackIsActive()) {
+                            float threshold = LLMFallbackGetConfidenceThreshold();
                             bool hardReject = GENERAL[n]->ROI[roi]->isReject;
-                            bool lowConf    = (!hardReject
-                                              && LLMFallbackGetConfidenceThreshold() > 0.0f
-                                              && _val < LLMFallbackGetConfidenceThreshold());
+                            bool lowConf    = (!hardReject && threshold > 0.0f && _val < threshold);
                             if (hardReject || lowConf) {
-                                llmPending.push_back({n, roi});
+                                char ctx[160];
+                                if (hardReject) {
+                                    snprintf(ctx, sizeof(ctx),
+                                        "type=DoubleHyprid10 num=%d val=%.4f result=%.4f fit=%.4f reason=hardReject (fit<CNNGoodThreshold)",
+                                        _num, _val, result, _fit);
+                                } else {
+                                    snprintf(ctx, sizeof(ctx),
+                                        "type=DoubleHyprid10 num=%d val=%.4f result=%.4f reason=lowConf threshold=%.4f",
+                                        _num, _val, result, threshold);
+                                }
+                                LogFile.WriteToFile(ESP_LOG_INFO, TAG,
+                                    "LLM queue: ROI '" + GENERAL[n]->ROI[roi]->name + "' " + ctx);
+                                llmPending.push_back({n, roi, ctx});
                             }
                         }
 
@@ -920,7 +944,9 @@ bool ClassFlowCNNGeneral::doNeuralNetwork(string time) {
             delete upscaled;
             if (imgData && imgData->size > 0) {
                 LogFile.WriteHeapInfo("LLM fallback - before QueryDigit");
-                int llmResult = LLMFallbackQueryDigit(imgData->data, imgData->size);
+                std::string llmLabel = GENERAL[p.n]->name + "_" + roiObj->name;
+                int llmResult = LLMFallbackQueryDigit(imgData->data, imgData->size,
+                                                      llmLabel, p.context);
                 LogFile.WriteHeapInfo("LLM fallback - after QueryDigit");
                 if (llmResult >= 0 && llmResult <= 9) {
                     roiObj->result_klasse = llmResult;
