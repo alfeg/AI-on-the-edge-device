@@ -60,9 +60,11 @@ function ZerlegeZeile(input, delimiter = " =\t\r") {
      * 
      * This causes issues eg. if a password key has a whitespace or equal sign in its value.
      * As a workaround and to not break any legacy usage, we enforce to only use the
-     * equal sign, if the key is "password"
+     * equal sign, if the key is "password" (or any of the other free-text keys
+     * that legitimately contain spaces / equal signs in their values).
      */
-    if (input.includes("password") || input.includes("Token")) { // Line contains a password, use the equal sign as the only delimiter and only split on first occurrence
+    if (input.includes("password") || input.includes("Token") ||
+        input.includes("Prompt") || input.includes("AdditionalHeaders")) { // Line contains free-text value, use the equal sign as the only delimiter and only split on first occurrence
         var pos = input.indexOf("=");
         delimiter = " \t\r"
         Output.push(trim(input.substr(0, pos), delimiter));

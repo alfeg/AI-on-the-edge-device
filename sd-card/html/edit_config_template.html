@@ -3330,19 +3330,24 @@ function ReadParameter(_param, _cat, _name, _optional, _number = -1) {
                     }
                 }
 				
-                NUMBERS[_number][_cat][_name]["value"+j] = element.value;
+                let v = element.value;
+                if (element.tagName.toLowerCase() == "textarea") {
+                    // .ini is single-line per key — collapse newlines/CR into spaces
+                    v = v.replace(/[\r\n]+/g, " ").trim();
+                }
+                NUMBERS[_number][_cat][_name]["value"+j] = v;
             }
         }
     }
     else
     {
         if (_optional) {
-            _param[_cat][_name]["enabled"] = document.getElementById(_cat+"_"+_name+"_enabled").checked;			
+            _param[_cat][_name]["enabled"] = document.getElementById(_cat+"_"+_name+"_enabled").checked;
         }
 
         for (var j = 1; j <= _param[_cat][_name]["anzParam"]; ++j) {
             let element = document.getElementById(_cat+"_"+_name+"_value"+j);
-			
+
             if (element.tagName.toLowerCase() == "select") {
                 _param[_cat][_name]["value"+j] = element.selectedIndex > -1 ? element.options[element.selectedIndex].value : "";
             }
@@ -3353,15 +3358,20 @@ function ReadParameter(_param, _cat, _name, _optional, _number = -1) {
                 if ((_param[_cat][_name].checkRegExList != null) && (_param[_cat][_name].checkRegExList[j-1] != null)) {
                     if (!element.value.match(_param[_cat][_name].checkRegExList[j-1])) {
                         element.classList.add("invalid-input");
-                    } 
+                    }
                     else {
                         element.classList.remove("invalid-input");
                     }
                 }
-				
-                _param[_cat][_name]["value"+j] = element.value;
+
+                let v = element.value;
+                if (element.tagName.toLowerCase() == "textarea") {
+                    // .ini is single-line per key — collapse newlines/CR into spaces
+                    v = v.replace(/[\r\n]+/g, " ").trim();
+                }
+                _param[_cat][_name]["value"+j] = v;
             }
-        }		
+        }
     }
 }
 
