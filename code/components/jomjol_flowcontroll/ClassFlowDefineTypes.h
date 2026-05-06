@@ -49,6 +49,15 @@ struct NumberPost {
     time_t timeStampLastValue;     // Timestamp for the last read value; is used for the log
     time_t timeStampLastPreValue;  // Timestamp for the last PreValue set; is used for useMaxRateValue
     time_t timeStampTimeUTC;    // FIXME: not used; can be removed.
+
+    // Two-witness state: a single rate-violating reading is held pending. If
+    // the next cycle is consistent with it (within MaxRateValue tolerance), it
+    // is treated as confirmed truth and overrides PreValue. If inconsistent,
+    // the new reading replaces the suspect and waits for its own confirmation.
+    // Volatile only — not persisted across reboot.
+    bool hasSuspectReading;
+    double suspectValue;
+    time_t suspectTimestamp;
     string timeStamp;           // localTimeStr; timestamp of last valid reading formatted as local time
     double FlowRateAct;         // currentRate; ΔValue/min; since usage is not limited to water meters, the physical unit is not known.
     double PreValue;            // lastValidValue; most recent value that could be read w/o any errors
