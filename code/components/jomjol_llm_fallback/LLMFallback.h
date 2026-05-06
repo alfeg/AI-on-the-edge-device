@@ -58,10 +58,23 @@ float LLMFallbackGetConfidenceThreshold();
 /**
  * Send a JPEG-encoded digit ROI to the configured LLM and return the recognised digit.
  *
+ * Writes a full transcript of the conversation (request metadata, response body,
+ * parsed result) to /sdcard/log/llm/llm_YYYY-MM-DD.txt, and saves the exact JPEG
+ * sent to the LLM as /sdcard/log/llm/<timestamp>_<label>.jpg so failed cases can
+ * be replayed.
+ *
  * @param jpegData  Pointer to JPEG-encoded image bytes.
  * @param jpegLen   Length of jpegData in bytes.
+ * @param label     Caller-provided tag (e.g. ROI name) used in the saved
+ *                  JPEG filename and transcript header. Sanitised — only
+ *                  [A-Za-z0-9_-] kept.
+ * @param context   Free-form string written verbatim into the transcript
+ *                  header (e.g. "class=9 conf=0.65 reason=lowConf"). Helps
+ *                  explain *why* the LLM was consulted when reading logs.
  * @return          Recognised digit 0-9, or -1 on failure / feature disabled.
  */
-int LLMFallbackQueryDigit(const uint8_t* jpegData, size_t jpegLen);
+int LLMFallbackQueryDigit(const uint8_t* jpegData, size_t jpegLen,
+                          const std::string& label = "",
+                          const std::string& context = "");
 
 #endif // LLM_FALLBACK_H

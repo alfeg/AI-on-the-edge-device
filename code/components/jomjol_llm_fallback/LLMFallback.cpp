@@ -219,7 +219,7 @@ static int parseDigitFromResponse(const char* json, LLMProvider provider)
         if (s.size() == 1 && s[0] >= '0' && s[0] <= '9') {
             digit = s[0] - '0';
         } else {
-            LogFile.WriteToFile(ESP_LOG_DEBUG, TAG,
+            LogFile.WriteToFile(ESP_LOG_WARN, TAG,
                 "LLM returned non-digit content: '" + s + "'");
         }
     } else {
@@ -263,10 +263,58 @@ float LLMFallbackGetConfidenceThreshold()
     return s_cfg.confidenceThreshold;
 }
 
-int LLMFallbackQueryDigit(const uint8_t* jpegData, size_t jpegLen)
+/** Sanitise a caller-supplied label so it's safe for use in a filename. */
+static std::string sanitiseLabel(const std::string& in)
+{
+    std::string out;
+    out.reserve(in.size());
+    for (char c : in) {
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+            (c >= '0' && c <= '9') || c == '_' || c == '-') {
+            out += c;
+        }
+    }
+    return out;
+}
+
+int LLMFallbackQueryDigit(const uint8_t* jpegData, size_t jpegLen,
+                          const std::string& label,
+                          const std::string& context)
 {
     LogFile.WriteHeapInfo("LLMFallbackQueryDigit - entry");
     if (!s_active || !jpegData || jpegLen == 0) return -1;
+
+    /* ------------------------------------------------------------------
+     * 0. Capture timestamp and persist the JPEG that we're about to send.
+     *    Done up-front so even hard early failures leave the image on SD.
+     * ------------------------------------------------------------------ */
+    char tsHuman[32];   // 2026-05-06T21:23:00 (for transcript header)
+    char tsFile[32];    // 2026-05-06_21-23-00 (for filename)
+    {
+        time_t rawtime;
+        time(&rawtime);
+        struct tm* ti = localtime(&rawtime);
+        strftime(tsHuman, sizeof(tsHuman), "%Y-%m-%dT%H:%M:%S", ti);
+        strftime(tsFile,  sizeof(tsFile),  "%Y-%m-%d_%H-%M-%S", ti);
+    }
+
+    std::string safeLabel = sanitiseLabel(label);
+    std::string jpgName = std::string(tsFile);
+    if (!safeLabel.empty()) {
+        jpgName += "_" + safeLabel;
+    }
+    jpgName += ".jpg";
+    std::string jpgPath = "/sdcard/log/llm/" + jpgName;
+    {
+        FILE* f = fopen(jpgPath.c_str(), "wb");
+        if (f) {
+            fwrite(jpegData, 1, jpegLen, f);
+            fclose(f);
+        } else {
+            LogFile.WriteToFile(ESP_LOG_WARN, TAG,
+                "LLM: can't save image to " + jpgPath);
+        }
+    }
 
     /* ------------------------------------------------------------------
      * 1. Base64-encode the JPEG
@@ -359,31 +407,90 @@ int LLMFallbackQueryDigit(const uint8_t* jpegData, size_t jpegLen)
     esp_http_client_cleanup(client);
 
     /* ------------------------------------------------------------------
-     * 4. Log request/response summary via LogFile (safe, no direct SD I/O)
+     * 4. Parse response (only when transport+HTTP succeeded)
      * ------------------------------------------------------------------ */
-    LogFile.WriteToFile(ESP_LOG_INFO, TAG,
-        "LLM: POST " + url + " REQ=" + std::to_string(bodyFullSize) + "B");
-    if (err != ESP_OK) {
-        LogFile.WriteToFile(ESP_LOG_WARN, TAG,
-            "LLM: HTTP request failed (err=" + std::to_string(err) + ")");
-        free(ctxPtr);
-        return -1;
-    }
-    LogFile.WriteToFile(ESP_LOG_INFO, TAG,
-        "LLM: HTTP " + std::to_string(statusCode) +
-        " RESP(" + std::to_string(ctxPtr->len) + "B): " +
-        std::string(ctxPtr->buf, std::min(ctxPtr->len, 200)));
-    if (statusCode != 200) {
-        LogFile.WriteToFile(ESP_LOG_WARN, TAG,
-            "LLM: unexpected HTTP status " + std::to_string(statusCode));
-        free(ctxPtr);
-        return -1;
+    int digit = -1;
+    if (err == ESP_OK && statusCode == 200) {
+        digit = parseDigitFromResponse(ctxPtr->buf, s_cfg.provider);
     }
 
     /* ------------------------------------------------------------------
-     * 5. Parse response
+     * 5. Concise main-log line + full transcript on disk
      * ------------------------------------------------------------------ */
-    int digit = parseDigitFromResponse(ctxPtr->buf, s_cfg.provider);
+    const std::string providerName =
+        (s_cfg.provider == LLMProvider::OpenAI) ? "OpenAI" : "Ollama";
+
+    if (err != ESP_OK) {
+        std::string msg = "LLM: HTTP request failed (";
+        msg += esp_err_to_name(err);
+        msg += ", err=" + std::to_string(err) + ")";
+        if (err == ESP_ERR_HTTP_EAGAIN) {
+            msg += " — TIMEOUT after " + std::to_string(s_cfg.timeoutMs) +
+                   "ms; increase [LLMFallback] TimeoutMs in config.ini";
+        }
+        LogFile.WriteToFile(ESP_LOG_WARN, TAG, msg);
+    } else if (statusCode != 200) {
+        // Surface the *full* response body — that's the whole point of asking
+        // the server why it failed. WriteToFile flattens newlines to spaces.
+        std::string preview(ctxPtr->buf, ctxPtr->len);
+        LogFile.WriteToFile(ESP_LOG_WARN, TAG,
+            "LLM: HTTP " + std::to_string(statusCode) +
+            " RESP(" + std::to_string(ctxPtr->len) + "B): " + preview);
+    } else {
+        LogFile.WriteToFile(ESP_LOG_INFO, TAG,
+            "LLM: " + providerName + " " + url + " HTTP=200 digit=" +
+            (digit >= 0 ? std::to_string(digit) : std::string("FAIL")));
+    }
+
+    {
+        const std::string& promptUsed =
+            s_cfg.prompt.empty() ? std::string(DEFAULT_PROMPT) : s_cfg.prompt;
+
+        std::string entry;
+        entry.reserve(1024 + ctxPtr->len);
+        entry  = "=== ";
+        entry += tsHuman;
+        entry += " ";
+        entry += safeLabel.empty() ? std::string("(no-label)") : safeLabel;
+        entry += " ===\n";
+        entry += "Image:    " + jpgName + " (" + std::to_string(jpegLen) + "B JPEG)\n";
+        if (!context.empty()) {
+            entry += "Context:  " + context + "\n";
+        }
+        entry += "URL:      " + url + "\n";
+        entry += "Provider: " + providerName + "\n";
+        entry += "Model:    " + s_cfg.model + "\n";
+        entry += "Prompt:   " + promptUsed + "\n";
+        entry += "ReqBody:  " + std::to_string(bodyFullSize) + "B (image inlined as base64)\n";
+        if (err != ESP_OK) {
+            entry += "HTTP:     ERROR ";
+            entry += esp_err_to_name(err);
+            entry += " (err=" + std::to_string(err) + ")";
+            if (err == ESP_ERR_HTTP_EAGAIN) {
+                entry += " — TIMEOUT after " + std::to_string(s_cfg.timeoutMs) + "ms";
+            }
+            entry += "\n";
+        } else {
+            entry += "HTTP:     " + std::to_string(statusCode) + "\n";
+        }
+        entry += "Response (" + std::to_string(ctxPtr->len) + "B";
+        if (ctxPtr->len >= LLM_RESPONSE_BUFFER_SIZE - 1) {
+            entry += ", TRUNCATED at buffer limit";
+        }
+        entry += "):\n";
+        if (ctxPtr->len > 0) {
+            entry.append(ctxPtr->buf, ctxPtr->len);
+            if (entry.back() != '\n') entry += '\n';
+        } else {
+            entry += "(empty)\n";
+        }
+        entry += "Result:   ";
+        entry += (digit >= 0 ? std::to_string(digit) : std::string("FAIL"));
+        entry += "\n\n";
+
+        LogFile.WriteToLLMLog(entry);
+    }
+
     free(ctxPtr);
     return digit;
 }
