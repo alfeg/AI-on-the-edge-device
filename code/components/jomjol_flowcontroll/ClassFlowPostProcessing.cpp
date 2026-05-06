@@ -698,10 +698,14 @@ void ClassFlowPostProcessing::InitNUMBERS() {
 
         _number->Value = 0; // last value read out, incl. corrections
         _number->ReturnValue = ""; // corrected return value, possibly with error message
-        _number->ReturnRawValue = ""; // raw value (with N & leading 0)    
+        _number->ReturnRawValue = ""; // raw value (with N & leading 0)
         _number->PreValue = 0; // last value read out well
         _number->ReturnPreValue = "";
         _number->ErrorMessageText = ""; // Error message for consistency check
+
+        _number->hasSuspectReading = false;
+        _number->suspectValue = 0;
+        _number->suspectTimestamp = 0;
 
         _number->Nachkomma = _number->AnzahlAnalog;
 
@@ -903,26 +907,62 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                 }
             }
 
+            // When the two-witness logic accepts a violating reading as truth, skip
+            // subsequent rate checks against the now-stale PreValue this cycle.
+            bool witnessOverrideThisCycle = false;
+
             if ((!NUMBERS[j]->AllowNegativeRates) && (NUMBERS[j]->Value < NUMBERS[j]->PreValue)) {
                 LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, "handleAllowNegativeRate for device: " + NUMBERS[j]->name);
-					
+
                 if ((NUMBERS[j]->Value < NUMBERS[j]->PreValue)) {
                     // more debug if extended resolution is on, see #2447
                     if (NUMBERS[j]->isExtendedResolution) {
-                        LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, "Neg: value=" + std::to_string(NUMBERS[j]->Value) 
-                                                    + ", preValue=" + std::to_string(NUMBERS[j]->PreValue) 
+                        LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, "Neg: value=" + std::to_string(NUMBERS[j]->Value)
+                                                    + ", preValue=" + std::to_string(NUMBERS[j]->PreValue)
                                                     + ", preToll=" + std::to_string(NUMBERS[j]->PreValue-(2/pow(10, NUMBERS[j]->Nachkomma))));
-                    } 
+                    }
 
-                    NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText + "Neg. Rate - Read: " + zwvalue + " - Raw: " + NUMBERS[j]->ReturnRawValue + " - Pre: " + RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + " "; 
-                    NUMBERS[j]->Value = NUMBERS[j]->PreValue;
-                    NUMBERS[j]->ReturnValue = "";
-                    NUMBERS[j]->timeStampLastValue = imagetime;
+                    // Two-witness: a held suspect that matches the current reading is
+                    // treated as truth and overrides the (apparently poisoned) PreValue.
+                    bool witnessConfirmed = false;
+                    if (NUMBERS[j]->hasSuspectReading) {
+                        double mb = difftime(imagetime, NUMBERS[j]->suspectTimestamp) / 60.0;
+                        double minutesBetween = (mb < 1.0) ? 1.0 : mb;
+                        double tol = abs(NUMBERS[j]->MaxRateValue);
+                        if (NUMBERS[j]->MaxRateType == RateChange) tol *= minutesBetween;
+                        tol *= 1.5;  // safety margin
+                        if (abs(NUMBERS[j]->Value - NUMBERS[j]->suspectValue) <= tol) {
+                            witnessConfirmed = true;
+                        }
+                    }
 
-                    string _zw = NUMBERS[j]->name + ": Raw: " + NUMBERS[j]->ReturnRawValue + ", Value: " + NUMBERS[j]->ReturnValue + ", Status: " + NUMBERS[j]->ErrorMessageText;
-                    LogFile.WriteToFile(ESP_LOG_ERROR, TAG, _zw);
-                    WriteDataLog(j);
-                    continue;
+                    if (witnessConfirmed) {
+                        LogFile.WriteToFile(ESP_LOG_WARN, TAG,
+                            NUMBERS[j]->name + ": two-witness confirmed neg-rate reading; overriding PreValue " +
+                            RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + " -> " +
+                            RundeOutput(NUMBERS[j]->Value, NUMBERS[j]->Nachkomma));
+                        NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText +
+                            "Neg. Rate witnessed (PreValue overridden) ";
+                        NUMBERS[j]->hasSuspectReading = false;
+                        witnessOverrideThisCycle = true;
+                        // fall through — let the rest of doFlow promote Value to PreValue
+                    }
+                    else {
+                        const char* phase = NUMBERS[j]->hasSuspectReading ? "witness restart" : "witness pending";
+                        NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText + "Neg. Rate - Read: " + zwvalue + " - Raw: " + NUMBERS[j]->ReturnRawValue + " - Pre: " + RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + " [" + phase + "] ";
+                        NUMBERS[j]->suspectValue = NUMBERS[j]->Value;
+                        NUMBERS[j]->suspectTimestamp = imagetime;
+                        NUMBERS[j]->hasSuspectReading = true;
+
+                        NUMBERS[j]->Value = NUMBERS[j]->PreValue;
+                        NUMBERS[j]->ReturnValue = "";
+                        NUMBERS[j]->timeStampLastValue = imagetime;
+
+                        string _zw = NUMBERS[j]->name + ": Raw: " + NUMBERS[j]->ReturnRawValue + ", Value: " + NUMBERS[j]->ReturnValue + ", Status: " + NUMBERS[j]->ErrorMessageText;
+                        LogFile.WriteToFile(ESP_LOG_ERROR, TAG, _zw);
+                        WriteDataLog(j);
+                        continue;
+                    }
                 }
             }
 
@@ -935,7 +975,7 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
             NUMBERS[j]->FlowRateAct = (NUMBERS[j]->Value - NUMBERS[j]->PreValue) / LastPreValueTimeDifference;
             NUMBERS[j]->ReturnRateValue =  to_string(NUMBERS[j]->FlowRateAct);
 
-            if ((NUMBERS[j]->useMaxRateValue) && (NUMBERS[j]->Value != NUMBERS[j]->PreValue)) {
+            if (!witnessOverrideThisCycle && (NUMBERS[j]->useMaxRateValue) && (NUMBERS[j]->Value != NUMBERS[j]->PreValue)) {
                 double _ratedifference;
 					
                 if (NUMBERS[j]->MaxRateType == RateChange) {
@@ -950,16 +990,45 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                 }
 
                 if (abs(_ratedifference) > abs(NUMBERS[j]->MaxRateValue)) {
-                    NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText + "Rate too high - Read: " + RundeOutput(NUMBERS[j]->Value, NUMBERS[j]->Nachkomma) + " - Pre: " + RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + " - Rate: " + RundeOutput(_ratedifference, NUMBERS[j]->Nachkomma);
-                    NUMBERS[j]->Value = NUMBERS[j]->PreValue;
-                    NUMBERS[j]->ReturnValue = "";
-                    NUMBERS[j]->ReturnRateValue = "";
-                    NUMBERS[j]->timeStampLastValue = imagetime;
+                    bool witnessConfirmed = false;
+                    if (NUMBERS[j]->hasSuspectReading) {
+                        double mb = difftime(imagetime, NUMBERS[j]->suspectTimestamp) / 60.0;
+                        double minutesBetween = (mb < 1.0) ? 1.0 : mb;
+                        double tol = abs(NUMBERS[j]->MaxRateValue);
+                        if (NUMBERS[j]->MaxRateType == RateChange) tol *= minutesBetween;
+                        tol *= 1.5;  // safety margin
+                        if (abs(NUMBERS[j]->Value - NUMBERS[j]->suspectValue) <= tol) {
+                            witnessConfirmed = true;
+                        }
+                    }
 
-                    string _zw = NUMBERS[j]->name + ": Raw: " + NUMBERS[j]->ReturnRawValue + ", Value: " + NUMBERS[j]->ReturnValue + ", Status: " + NUMBERS[j]->ErrorMessageText;
-                    LogFile.WriteToFile(ESP_LOG_ERROR, TAG, _zw);
-                    WriteDataLog(j);
-                    continue;
+                    if (witnessConfirmed) {
+                        LogFile.WriteToFile(ESP_LOG_WARN, TAG,
+                            NUMBERS[j]->name + ": two-witness confirmed rate-too-high reading; overriding PreValue " +
+                            RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + " -> " +
+                            RundeOutput(NUMBERS[j]->Value, NUMBERS[j]->Nachkomma));
+                        NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText +
+                            "Rate too high witnessed (PreValue overridden) ";
+                        NUMBERS[j]->hasSuspectReading = false;
+                        // fall through — accept the reading
+                    }
+                    else {
+                        const char* phase = NUMBERS[j]->hasSuspectReading ? "witness restart" : "witness pending";
+                        NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText + "Rate too high - Read: " + RundeOutput(NUMBERS[j]->Value, NUMBERS[j]->Nachkomma) + " - Pre: " + RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + " - Rate: " + RundeOutput(_ratedifference, NUMBERS[j]->Nachkomma) + " [" + phase + "] ";
+                        NUMBERS[j]->suspectValue = NUMBERS[j]->Value;
+                        NUMBERS[j]->suspectTimestamp = imagetime;
+                        NUMBERS[j]->hasSuspectReading = true;
+
+                        NUMBERS[j]->Value = NUMBERS[j]->PreValue;
+                        NUMBERS[j]->ReturnValue = "";
+                        NUMBERS[j]->ReturnRateValue = "";
+                        NUMBERS[j]->timeStampLastValue = imagetime;
+
+                        string _zw = NUMBERS[j]->name + ": Raw: " + NUMBERS[j]->ReturnRawValue + ", Value: " + NUMBERS[j]->ReturnValue + ", Status: " + NUMBERS[j]->ErrorMessageText;
+                        LogFile.WriteToFile(ESP_LOG_ERROR, TAG, _zw);
+                        WriteDataLog(j);
+                        continue;
+                    }
                 }
             }
 
@@ -968,6 +1037,14 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
         #endif
         }
         
+        // Clean reading committed — invalidate any held-pending witness.
+        if (NUMBERS[j]->hasSuspectReading) {
+            LogFile.WriteToFile(ESP_LOG_DEBUG, TAG,
+                NUMBERS[j]->name + ": clean reading discards pending suspect " +
+                std::to_string(NUMBERS[j]->suspectValue));
+            NUMBERS[j]->hasSuspectReading = false;
+        }
+
         NUMBERS[j]->ReturnChangeAbsolute = RundeOutput(NUMBERS[j]->Value - NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma);
         NUMBERS[j]->PreValue = NUMBERS[j]->Value;
         NUMBERS[j]->PreValueOkay = true;
