@@ -65,6 +65,10 @@ bool ClassFlowLLMFallback::ReadParameter(FILE* pfile, string& aktparamgraph)
         else if (key == "PROMPT") {
             cfg.prompt = val;
         }
+        else if (key == "ARBITRATERATEVIOLATIONS") {
+            std::string uval = toUpper(val);
+            cfg.arbitrateRateViolations = (uval == "TRUE" || uval == "1" || uval == "YES" || uval == "ON");
+        }
     }
 
     LLMFallbackInit(cfg);

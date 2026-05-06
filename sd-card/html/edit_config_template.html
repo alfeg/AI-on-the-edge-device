@@ -2118,6 +2118,19 @@
             <td>$TOOLTIP_LLMFallback_Prompt</td>
         </tr>
 
+        <tr class="LLMFallbackItem expert">
+            <td class="indent1">
+                <label><class id="LLMFallback_ArbitrateRateViolations_text" style="color:black;">Arbitrate Rate Violations</class></label>
+            </td>
+            <td>
+                <select id="LLMFallback_ArbitrateRateViolations_value1">
+                    <option value="true">enabled (true)</option>
+                    <option value="false" selected>disabled (false)</option>
+                </select>
+            </td>
+            <td>$TOOLTIP_LLMFallback_ArbitrateRateViolations</td>
+        </tr>
+
         <!------------- Debug Logging ------------------>
         <tr style="border-bottom: 2px solid lightgray;">
             <td colspan="3" style="padding-left: 0px; padding-bottom: 3px;"><h4>Debug</h4></td>
@@ -2528,6 +2541,7 @@ function UpdateInput() {
     WriteParameter(param, category, "LLMFallback", "Model", true);
     WriteParameter(param, category, "LLMFallback", "AdditionalHeaders", true);
     WriteParameter(param, category, "LLMFallback", "Prompt", true);
+    WriteParameter(param, category, "LLMFallback", "ArbitrateRateViolations", false);
 
     WriteParameter(param, category, "GPIO", "IO0", true);
     WriteParameter(param, category, "GPIO", "IO1", true);
@@ -2707,6 +2721,7 @@ function ReadParameterAll() {
     ReadParameter(param, "LLMFallback", "Model", true);
     ReadParameter(param, "LLMFallback", "AdditionalHeaders", true);
     ReadParameter(param, "LLMFallback", "Prompt", true);
+    ReadParameter(param, "LLMFallback", "ArbitrateRateViolations", false);
     // Show default prompt if not configured
     if (!document.getElementById("LLMFallback_Prompt_enabled").checked ||
         !document.getElementById("LLMFallback_Prompt_value1").value.trim()) {

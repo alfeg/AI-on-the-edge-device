@@ -252,6 +252,7 @@ function ParseConfig() {
     ParamAddValue(param, catname, "Model");
     ParamAddValue(param, catname, "AdditionalHeaders");
     ParamAddValue(param, catname, "Prompt");
+    ParamAddValue(param, catname, "ArbitrateRateViolations", 1, false, "false");
 
     var catname = "GPIO";
     category[catname] = new Object();

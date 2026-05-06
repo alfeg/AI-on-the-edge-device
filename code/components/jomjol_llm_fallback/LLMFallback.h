@@ -22,10 +22,11 @@ enum class LLMProvider {
  *   - endpoint is empty.
  */
 struct LLMConfig {
-    LLMProvider provider            = LLMProvider::None;
-    int         timeoutMs           = 5000;
-    int         maxTokens           = 200;  ///< max_tokens (OpenAI) / num_predict (Ollama); set high enough for thinking models
-    float       confidenceThreshold = 0.0f; ///< 0.0 = only hard failures; >0 also catches low-confidence recognitions
+    LLMProvider provider                = LLMProvider::None;
+    int         timeoutMs               = 5000;
+    int         maxTokens               = 200;  ///< max_tokens (OpenAI) / num_predict (Ollama); set high enough for thinking models
+    float       confidenceThreshold     = 0.0f; ///< 0.0 = only hard failures; >0 also catches low-confidence recognitions
+    bool        arbitrateRateViolations = false; ///< When true, ask the LLM to break the tie on neg-rate / rate-too-high before falling back to two-witness logic
 
     std::string endpoint;      ///< Base URL — e.g. "https://api.openai.com/v1" or "http://192.168.1.50:11434"
     std::string apiKey;        ///< Bearer token; empty = no auth header
@@ -76,5 +77,44 @@ float LLMFallbackGetConfidenceThreshold();
 int LLMFallbackQueryDigit(const uint8_t* jpegData, size_t jpegLen,
                           const std::string& label = "",
                           const std::string& context = "");
+
+/**
+ * Returns true when the rate-violation arbiter is configured and ready.
+ * Independently gated from the per-digit fallback: requires both
+ * LLMFallbackIsActive() and the [LLMFallback] ArbitrateRateViolations flag.
+ */
+bool LLMFallbackArbiterEnabled();
+
+/**
+ * Ask the LLM to read the actual meter value when post-processing detects a
+ * rate violation. Caller passes a JPEG of the full meter image plus context
+ * needed to build a useful prompt.
+ *
+ * The arbiter is consulted only when the CNN-derived value disagrees with
+ * PreValue by more than MaxRateValue allows. The LLM looks at the image and
+ * answers with what it actually reads.
+ *
+ * @param jpegData       JPEG bytes of the full (aligned) meter image.
+ * @param jpegLen        Length of jpegData.
+ * @param preValue       The previous accepted reading.
+ * @param currentRaw     The CNN-derived current reading (the violator).
+ * @param minutesElapsed Time since previous reading was committed.
+ * @param maxRate        Configured MaxRateValue (per-cycle or per-minute,
+ *                       depending on MaxRateType — caller passes whichever
+ *                       is meaningful).
+ * @param decimalPlaces  Number of decimal digits in the reading.
+ * @param outValue       On true return, set to the LLM's parsed reading.
+ * @param label          Tag for the saved JPEG and transcript (e.g. number name).
+ *
+ * @return true on a successful numeric parse; false on feature off, transport
+ *         error, or unparseable response. Caller must fall back to its
+ *         existing recovery logic when this returns false.
+ */
+bool LLMFallbackArbitrateValue(const uint8_t* jpegData, size_t jpegLen,
+                               double preValue, double currentRaw,
+                               double minutesElapsed, double maxRate,
+                               int decimalPlaces,
+                               double* outValue,
+                               const std::string& label = "");
 
 #endif // LLM_FALLBACK_H
