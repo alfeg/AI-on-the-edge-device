@@ -97,12 +97,13 @@ if [ $FIRMWARE_ONLY -eq 0 ]; then
             echo "  WARNING: $subdir/ not found in artifacts — skipping"
         fi
     done
-    # TFLite CNN models — copy config/ but exclude config.ini and prevalue.ini
-    # to avoid overwriting the user's running configuration on the device.
+    # TFLite CNN models only. Whitelist *.tflite so an OTA update never
+    # clobbers user-specific files in /sdcard/config/ — config.ini, prevalue.ini,
+    # and the per-meter alignment markers ref0.jpg / ref0_org.jpg / ref1.jpg /
+    # ref1_org.jpg / reference.jpg are calibrated to the user's installation.
     if [ -d "$ARTIFACTS_DIR/config" ]; then
         mkdir -p "$STAGING_DIR/config"
-        find "$ARTIFACTS_DIR/config" -maxdepth 1 -type f \
-            ! -name 'config.ini' ! -name 'prevalue.ini' \
+        find "$ARTIFACTS_DIR/config" -maxdepth 1 -type f -name '*.tflite' \
             -exec cp {} "$STAGING_DIR/config/" \;
     else
         echo "  WARNING: config/ not found in artifacts — skipping"

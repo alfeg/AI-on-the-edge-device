@@ -129,13 +129,15 @@ if (-not $FirmwareOnly) {
         Write-Warning "  demo/ not found in artifacts — skipping"
     }
 
-    # TFLite CNN models — copy the config/ folder but exclude config.ini and prevalue.ini
-    # to avoid overwriting the user's running configuration on the device.
+    # TFLite CNN models only. Whitelist *.tflite so an OTA update never
+    # clobbers user-specific files in /sdcard/config/ — config.ini, prevalue.ini,
+    # and the per-meter alignment markers ref0.jpg / ref0_org.jpg / ref1.jpg /
+    # ref1_org.jpg / reference.jpg are calibrated to the user's installation.
     $configSrc = Join-Path $ArtifactsDir "config"
     if (Test-Path $configSrc) {
         $configDst = Join-Path $StagingDir "config"
         New-Item -ItemType Directory -Force -Path $configDst | Out-Null
-        Get-ChildItem $configSrc -File | Where-Object { $_.Name -notin @('config.ini', 'prevalue.ini') } | ForEach-Object {
+        Get-ChildItem $configSrc -File -Filter "*.tflite" | ForEach-Object {
             Copy-Item $_.FullName (Join-Path $configDst $_.Name)
         }
     } else {
