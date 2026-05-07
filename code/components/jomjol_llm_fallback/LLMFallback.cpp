@@ -368,7 +368,7 @@ static void llmDoRequest(const uint8_t* jpegData, size_t jpegLen,
     if (!safeLabel.empty()) jpgName += "_" + safeLabel;
     jpgName += ".jpg";
     std::string jpgPath = "/sdcard/log/llm/" + jpgName;
-    {
+    if (s_cfg.logConversations) {
         FILE* f = fopen(jpgPath.c_str(), "wb");
         if (f) {
             fwrite(jpegData, 1, jpegLen, f);
@@ -475,8 +475,8 @@ static void llmDoRequest(const uint8_t* jpegData, size_t jpegLen,
             "LLM: " + providerName + " " + url + " HTTP=200 result=" + resultStr);
     }
 
-    // 7. Full transcript on disk.
-    {
+    // 7. Full transcript on disk (gated — main-log line above always runs).
+    if (s_cfg.logConversations) {
         std::string entry;
         entry.reserve(1024 + ctxPtr->len);
         entry  = "=== ";
@@ -540,7 +540,8 @@ void LLMFallbackInit(const LLMConfig& cfg)
         LogFile.WriteToFile(ESP_LOG_INFO, TAG,
             "LLM fallback active. Provider=" + provider +
             " ConfidenceThreshold=" + std::to_string(cfg.confidenceThreshold) +
-            " ArbitrateRateViolations=" + (s_arbiterActive ? "true" : "false"));
+            " ArbitrateRateViolations=" + (s_arbiterActive ? "true" : "false") +
+            " LogConversations=" + (cfg.logConversations ? "true" : "false"));
     } else {
         LogFile.WriteToFile(ESP_LOG_INFO, TAG, "LLM fallback disabled");
     }
