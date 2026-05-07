@@ -27,6 +27,7 @@ struct LLMConfig {
     int         maxTokens               = 200;  ///< max_tokens (OpenAI) / num_predict (Ollama); set high enough for thinking models
     float       confidenceThreshold     = 0.0f; ///< 0.0 = only hard failures; >0 also catches low-confidence recognitions
     bool        arbitrateRateViolations = false; ///< When true, ask the LLM to break the tie on neg-rate / rate-too-high before falling back to two-witness logic
+    bool        logConversations        = true;  ///< When true, persist each request/response to /sdcard/log/llm/. Disable to save SD wear.
 
     std::string endpoint;      ///< Base URL — e.g. "https://api.openai.com/v1" or "http://192.168.1.50:11434"
     std::string apiKey;        ///< Bearer token; empty = no auth header
