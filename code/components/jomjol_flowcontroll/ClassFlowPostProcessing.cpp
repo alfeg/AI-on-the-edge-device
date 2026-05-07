@@ -874,12 +874,71 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
         #endif
 			
         NUMBERS[j]->Value = std::stod(NUMBERS[j]->ReturnValue);
-			
+
         #ifdef SERIAL_DEBUG
             ESP_LOGD(TAG, "After setting the Value: Value %f and as double is %f", NUMBERS[j]->Value, std::stod(NUMBERS[j]->ReturnValue));
         #endif
 
-        if (NUMBERS[j]->checkDigitIncreaseConsistency) {
+        // checkDigitConsistency assumes the CNN flipped at most one digit and
+        // rewrites the new reading toward PreValue accordingly. When the LLM
+        // fallback corrected multiple ROIs in one cycle, that assumption is
+        // broken: a legitimate large jump gets dragged back to PreValue, the
+        // rate-too-high / neg-rate branches below see no violation, and the
+        // arbiter never runs. Run the arbiter first on the raw CNN+LLM value;
+        // if it accepts, skip both checkDigitConsistency and the late rate
+        // guards (treated as a witness override).
+        bool earlyArbiterAccepted = false;
+        if (PreValueUse && NUMBERS[j]->PreValueOkay && LLMFallbackArbiterEnabled()
+                && flowTakeImage && flowTakeImage->rawImage) {
+            bool wouldBeNegRate = (!NUMBERS[j]->AllowNegativeRates)
+                                  && (NUMBERS[j]->Value < NUMBERS[j]->PreValue);
+
+            double minutesSincePreValue = LastPreValueTimeDifference / 60.0;
+            if (minutesSincePreValue < 0) minutesSincePreValue = 0;
+
+            bool wouldBeRateHigh = false;
+            if (NUMBERS[j]->useMaxRateValue && (NUMBERS[j]->Value != NUMBERS[j]->PreValue)) {
+                double diff;
+                if (NUMBERS[j]->MaxRateType == RateChange) {
+                    double mins = (minutesSincePreValue < 1.0) ? 1.0 : minutesSincePreValue;
+                    diff = (NUMBERS[j]->Value - NUMBERS[j]->PreValue) / mins;
+                }
+                else {
+                    diff = NUMBERS[j]->Value - NUMBERS[j]->PreValue;
+                }
+                if (abs(diff) > abs(NUMBERS[j]->MaxRateValue)) wouldBeRateHigh = true;
+            }
+
+            if (wouldBeNegRate || wouldBeRateHigh) {
+                LogFile.WriteHeapInfo("LLM arbiter (pre-consistency) - before encode");
+                ImageData* arbImg = flowTakeImage->rawImage->writeToMemoryAsJPG(75);
+                if (arbImg && arbImg->size > 0) {
+                    double arbValue = 0;
+                    bool ok = LLMFallbackArbitrateValue(
+                        arbImg->data, arbImg->size,
+                        NUMBERS[j]->PreValue, NUMBERS[j]->Value,
+                        minutesSincePreValue, abs(NUMBERS[j]->MaxRateValue),
+                        NUMBERS[j]->Nachkomma, &arbValue,
+                        NUMBERS[j]->name + (wouldBeNegRate ? "_arb_pre_neg" : "_arb_pre_high"));
+                    if (ok) {
+                        LogFile.WriteToFile(ESP_LOG_WARN, TAG,
+                            NUMBERS[j]->name + ": LLM arbiter (pre-consistency) accepted " +
+                            RundeOutput(arbValue, NUMBERS[j]->Nachkomma) +
+                            " (CNN raw=" + RundeOutput(NUMBERS[j]->Value, NUMBERS[j]->Nachkomma) +
+                            " PreValue=" + RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + ")");
+                        NUMBERS[j]->Value = arbValue;
+                        NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText +
+                            "LLM arbiter accepted " +
+                            RundeOutput(arbValue, NUMBERS[j]->Nachkomma) + " ";
+                        NUMBERS[j]->hasSuspectReading = false;
+                        earlyArbiterAccepted = true;
+                    }
+                }
+                delete arbImg;
+            }
+        }
+
+        if (!earlyArbiterAccepted && NUMBERS[j]->checkDigitIncreaseConsistency) {
             if (flowDigit) {
                 LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, "Before checkDigitConsistency: value=" + std::to_string(NUMBERS[j]->Value));
                 NUMBERS[j]->Value = checkDigitConsistency(NUMBERS[j]->Value, NUMBERS[j]->DecimalShift, NUMBERS[j]->analog_roi != NULL, NUMBERS[j]->PreValue);
@@ -910,11 +969,13 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
 
             // When the two-witness logic OR the LLM arbiter accepts a violating
             // reading as truth this cycle, skip subsequent rate checks against
-            // the now-stale PreValue.
-            bool witnessOverrideThisCycle = false;
-            bool arbiterAcceptedThisCycle = false;
+            // the now-stale PreValue. Seed from the early arbiter so the
+            // neg-rate / rate-too-high branches don't re-run the arbiter on
+            // the same image.
+            bool witnessOverrideThisCycle = earlyArbiterAccepted;
+            bool arbiterAcceptedThisCycle = earlyArbiterAccepted;
 
-            if ((!NUMBERS[j]->AllowNegativeRates) && (NUMBERS[j]->Value < NUMBERS[j]->PreValue)) {
+            if (!witnessOverrideThisCycle && (!NUMBERS[j]->AllowNegativeRates) && (NUMBERS[j]->Value < NUMBERS[j]->PreValue)) {
                 LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, "handleAllowNegativeRate for device: " + NUMBERS[j]->name);
 
                 if ((NUMBERS[j]->Value < NUMBERS[j]->PreValue)) {

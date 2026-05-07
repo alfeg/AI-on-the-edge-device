@@ -3296,19 +3296,26 @@ function EnDisableItem(_status, _param, _category, _cat, _name, _optional, _numb
 
     if (_optional) {
         document.getElementById(_cat+"_"+_name+"_enabled").disabled = !_status;
-        document.getElementById(_cat+"_"+_name+"_enabled").style.color = _color;	
+        document.getElementById(_cat+"_"+_name+"_enabled").style.color = _color;
     }
 
-    if (_number == -1) {
-        if (!_param[_cat][_name]["enabled"]) {
-            _status = false;
-            _color = "rgb(122, 122, 122)";
+    // The per-param "enabled" flag tracks whether the line is uncommented in
+    // config.ini. It only gates the control for OPTIONAL params (those with
+    // their own enable/disable checkbox). Non-optional params have no such
+    // checkbox, so leaving them gated by this flag would render them as
+    // "disabled" with no UI control to re-enable them.
+    if (_optional) {
+        if (_number == -1) {
+            if (!_param[_cat][_name]["enabled"]) {
+                _status = false;
+                _color = "rgb(122, 122, 122)";
+            }
         }
-    }
-    else {
-        if (!NUMBERS[_number][_cat][_name]["enabled"]) {
-            _status = false;
-            _color = "rgb(122, 122, 122)";
+        else {
+            if (!NUMBERS[_number][_cat][_name]["enabled"]) {
+                _status = false;
+                _color = "rgb(122, 122, 122)";
+            }
         }
     }
 
@@ -3338,12 +3345,17 @@ function ReadParameter(_param, _cat, _name, _optional, _number = -1) {
         }
 
         if (_optional) {
-            NUMBERS[_number][_cat][_name]["enabled"] = document.getElementById(_cat+"_"+_name+"_enabled").checked;			
+            NUMBERS[_number][_cat][_name]["enabled"] = document.getElementById(_cat+"_"+_name+"_enabled").checked;
+        }
+        else {
+            // Non-optional per-NUMBER params have no enable checkbox; ensure
+            // they are persisted as uncommented lines.
+            NUMBERS[_number][_cat][_name]["enabled"] = true;
         }
 
         for (var j = 1; j <= _param[_cat][_name]["anzParam"]; ++j) {
             let element = document.getElementById(_cat+"_"+_name+"_value"+j);
-			
+
             if (element.tagName.toLowerCase() == "select") {
                 NUMBERS[_number][_cat][_name]["value"+j] = element.selectedIndex > -1 ? element.options[element.selectedIndex].value : "";
             }
@@ -3373,6 +3385,11 @@ function ReadParameter(_param, _cat, _name, _optional, _number = -1) {
     {
         if (_optional) {
             _param[_cat][_name]["enabled"] = document.getElementById(_cat+"_"+_name+"_enabled").checked;
+        }
+        else {
+            // Non-optional params have no enable checkbox; they are always
+            // written uncommented so the firmware actually reads them.
+            _param[_cat][_name]["enabled"] = true;
         }
 
         for (var j = 1; j <= _param[_cat][_name]["anzParam"]; ++j) {
