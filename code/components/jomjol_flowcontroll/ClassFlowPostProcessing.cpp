@@ -2,6 +2,7 @@
 #include "Helper.h"
 #include "ClassFlowTakeImage.h"
 #include "ClassLogFile.h"
+#include "LLMFallback.h"
 
 #include <iomanip>
 #include <sstream>
@@ -698,10 +699,14 @@ void ClassFlowPostProcessing::InitNUMBERS() {
 
         _number->Value = 0; // last value read out, incl. corrections
         _number->ReturnValue = ""; // corrected return value, possibly with error message
-        _number->ReturnRawValue = ""; // raw value (with N & leading 0)    
+        _number->ReturnRawValue = ""; // raw value (with N & leading 0)
         _number->PreValue = 0; // last value read out well
         _number->ReturnPreValue = "";
         _number->ErrorMessageText = ""; // Error message for consistency check
+
+        _number->hasSuspectReading = false;
+        _number->suspectValue = 0;
+        _number->suspectTimestamp = 0;
 
         _number->Nachkomma = _number->AnzahlAnalog;
 
@@ -869,12 +874,71 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
         #endif
 			
         NUMBERS[j]->Value = std::stod(NUMBERS[j]->ReturnValue);
-			
+
         #ifdef SERIAL_DEBUG
             ESP_LOGD(TAG, "After setting the Value: Value %f and as double is %f", NUMBERS[j]->Value, std::stod(NUMBERS[j]->ReturnValue));
         #endif
 
-        if (NUMBERS[j]->checkDigitIncreaseConsistency) {
+        // checkDigitConsistency assumes the CNN flipped at most one digit and
+        // rewrites the new reading toward PreValue accordingly. When the LLM
+        // fallback corrected multiple ROIs in one cycle, that assumption is
+        // broken: a legitimate large jump gets dragged back to PreValue, the
+        // rate-too-high / neg-rate branches below see no violation, and the
+        // arbiter never runs. Run the arbiter first on the raw CNN+LLM value;
+        // if it accepts, skip both checkDigitConsistency and the late rate
+        // guards (treated as a witness override).
+        bool earlyArbiterAccepted = false;
+        if (PreValueUse && NUMBERS[j]->PreValueOkay && LLMFallbackArbiterEnabled()
+                && flowTakeImage && flowTakeImage->rawImage) {
+            bool wouldBeNegRate = (!NUMBERS[j]->AllowNegativeRates)
+                                  && (NUMBERS[j]->Value < NUMBERS[j]->PreValue);
+
+            double minutesSincePreValue = LastPreValueTimeDifference / 60.0;
+            if (minutesSincePreValue < 0) minutesSincePreValue = 0;
+
+            bool wouldBeRateHigh = false;
+            if (NUMBERS[j]->useMaxRateValue && (NUMBERS[j]->Value != NUMBERS[j]->PreValue)) {
+                double diff;
+                if (NUMBERS[j]->MaxRateType == RateChange) {
+                    double mins = (minutesSincePreValue < 1.0) ? 1.0 : minutesSincePreValue;
+                    diff = (NUMBERS[j]->Value - NUMBERS[j]->PreValue) / mins;
+                }
+                else {
+                    diff = NUMBERS[j]->Value - NUMBERS[j]->PreValue;
+                }
+                if (abs(diff) > abs(NUMBERS[j]->MaxRateValue)) wouldBeRateHigh = true;
+            }
+
+            if (wouldBeNegRate || wouldBeRateHigh) {
+                LogFile.WriteHeapInfo("LLM arbiter (pre-consistency) - before encode");
+                ImageData* arbImg = flowTakeImage->rawImage->writeToMemoryAsJPG(75);
+                if (arbImg && arbImg->size > 0) {
+                    double arbValue = 0;
+                    bool ok = LLMFallbackArbitrateValue(
+                        arbImg->data, arbImg->size,
+                        NUMBERS[j]->PreValue, NUMBERS[j]->Value,
+                        minutesSincePreValue, abs(NUMBERS[j]->MaxRateValue),
+                        NUMBERS[j]->Nachkomma, &arbValue,
+                        NUMBERS[j]->name + (wouldBeNegRate ? "_arb_pre_neg" : "_arb_pre_high"));
+                    if (ok) {
+                        LogFile.WriteToFile(ESP_LOG_WARN, TAG,
+                            NUMBERS[j]->name + ": LLM arbiter (pre-consistency) accepted " +
+                            RundeOutput(arbValue, NUMBERS[j]->Nachkomma) +
+                            " (CNN raw=" + RundeOutput(NUMBERS[j]->Value, NUMBERS[j]->Nachkomma) +
+                            " PreValue=" + RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + ")");
+                        NUMBERS[j]->Value = arbValue;
+                        NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText +
+                            "LLM arbiter accepted " +
+                            RundeOutput(arbValue, NUMBERS[j]->Nachkomma) + " ";
+                        NUMBERS[j]->hasSuspectReading = false;
+                        earlyArbiterAccepted = true;
+                    }
+                }
+                delete arbImg;
+            }
+        }
+
+        if (!earlyArbiterAccepted && NUMBERS[j]->checkDigitIncreaseConsistency) {
             if (flowDigit) {
                 LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, "Before checkDigitConsistency: value=" + std::to_string(NUMBERS[j]->Value));
                 NUMBERS[j]->Value = checkDigitConsistency(NUMBERS[j]->Value, NUMBERS[j]->DecimalShift, NUMBERS[j]->analog_roi != NULL, NUMBERS[j]->PreValue);
@@ -903,26 +967,102 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                 }
             }
 
-            if ((!NUMBERS[j]->AllowNegativeRates) && (NUMBERS[j]->Value < NUMBERS[j]->PreValue)) {
+            // When the two-witness logic OR the LLM arbiter accepts a violating
+            // reading as truth this cycle, skip subsequent rate checks against
+            // the now-stale PreValue. Seed from the early arbiter so the
+            // neg-rate / rate-too-high branches don't re-run the arbiter on
+            // the same image.
+            bool witnessOverrideThisCycle = earlyArbiterAccepted;
+            bool arbiterAcceptedThisCycle = earlyArbiterAccepted;
+
+            if (!witnessOverrideThisCycle && (!NUMBERS[j]->AllowNegativeRates) && (NUMBERS[j]->Value < NUMBERS[j]->PreValue)) {
                 LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, "handleAllowNegativeRate for device: " + NUMBERS[j]->name);
-					
+
                 if ((NUMBERS[j]->Value < NUMBERS[j]->PreValue)) {
                     // more debug if extended resolution is on, see #2447
                     if (NUMBERS[j]->isExtendedResolution) {
-                        LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, "Neg: value=" + std::to_string(NUMBERS[j]->Value) 
-                                                    + ", preValue=" + std::to_string(NUMBERS[j]->PreValue) 
+                        LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, "Neg: value=" + std::to_string(NUMBERS[j]->Value)
+                                                    + ", preValue=" + std::to_string(NUMBERS[j]->PreValue)
                                                     + ", preToll=" + std::to_string(NUMBERS[j]->PreValue-(2/pow(10, NUMBERS[j]->Nachkomma))));
-                    } 
+                    }
 
-                    NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText + "Neg. Rate - Read: " + zwvalue + " - Raw: " + NUMBERS[j]->ReturnRawValue + " - Pre: " + RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + " "; 
-                    NUMBERS[j]->Value = NUMBERS[j]->PreValue;
-                    NUMBERS[j]->ReturnValue = "";
-                    NUMBERS[j]->timeStampLastValue = imagetime;
+                    // LLM arbiter: if enabled, ask the vision model to read the meter face
+                    // directly. A successful parse ends the violation here and overrides
+                    // PreValue immediately — no need to wait for the two-witness cycle.
+                    if (LLMFallbackArbiterEnabled() && flowTakeImage && flowTakeImage->rawImage) {
+                        LogFile.WriteHeapInfo("LLM arbiter (neg-rate) - before encode");
+                        ImageData* arbImg = flowTakeImage->rawImage->writeToMemoryAsJPG(75);
+                        if (arbImg && arbImg->size > 0) {
+                            double arbValue = 0;
+                            double minutesElapsed = difftime(imagetime, NUMBERS[j]->timeStampLastPreValue) / 60.0;
+                            if (minutesElapsed < 0) minutesElapsed = 0;
+                            bool ok = LLMFallbackArbitrateValue(
+                                arbImg->data, arbImg->size,
+                                NUMBERS[j]->PreValue, NUMBERS[j]->Value,
+                                minutesElapsed, abs(NUMBERS[j]->MaxRateValue),
+                                NUMBERS[j]->Nachkomma, &arbValue,
+                                NUMBERS[j]->name + "_arb_neg");
+                            if (ok) {
+                                LogFile.WriteToFile(ESP_LOG_WARN, TAG,
+                                    NUMBERS[j]->name + ": LLM arbiter (neg-rate) accepted " +
+                                    RundeOutput(arbValue, NUMBERS[j]->Nachkomma) +
+                                    " (CNN raw=" + RundeOutput(NUMBERS[j]->Value, NUMBERS[j]->Nachkomma) +
+                                    " PreValue=" + RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + ")");
+                                NUMBERS[j]->Value = arbValue;
+                                NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText +
+                                    "LLM arbiter accepted " +
+                                    RundeOutput(arbValue, NUMBERS[j]->Nachkomma) + " ";
+                                NUMBERS[j]->hasSuspectReading = false;
+                                witnessOverrideThisCycle = true;
+                                arbiterAcceptedThisCycle = true;
+                            }
+                        }
+                        delete arbImg;
+                    }
 
-                    string _zw = NUMBERS[j]->name + ": Raw: " + NUMBERS[j]->ReturnRawValue + ", Value: " + NUMBERS[j]->ReturnValue + ", Status: " + NUMBERS[j]->ErrorMessageText;
-                    LogFile.WriteToFile(ESP_LOG_ERROR, TAG, _zw);
-                    WriteDataLog(j);
-                    continue;
+                    if (!arbiterAcceptedThisCycle) {
+                        // Two-witness: a held suspect that matches the current reading is
+                        // treated as truth and overrides the (apparently poisoned) PreValue.
+                        bool witnessConfirmed = false;
+                        if (NUMBERS[j]->hasSuspectReading) {
+                            double mb = difftime(imagetime, NUMBERS[j]->suspectTimestamp) / 60.0;
+                            double minutesBetween = (mb < 1.0) ? 1.0 : mb;
+                            double tol = abs(NUMBERS[j]->MaxRateValue);
+                            if (NUMBERS[j]->MaxRateType == RateChange) tol *= minutesBetween;
+                            tol *= 1.5;  // safety margin
+                            if (abs(NUMBERS[j]->Value - NUMBERS[j]->suspectValue) <= tol) {
+                                witnessConfirmed = true;
+                            }
+                        }
+
+                        if (witnessConfirmed) {
+                            LogFile.WriteToFile(ESP_LOG_WARN, TAG,
+                                NUMBERS[j]->name + ": two-witness confirmed neg-rate reading; overriding PreValue " +
+                                RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + " -> " +
+                                RundeOutput(NUMBERS[j]->Value, NUMBERS[j]->Nachkomma));
+                            NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText +
+                                "Neg. Rate witnessed (PreValue overridden) ";
+                            NUMBERS[j]->hasSuspectReading = false;
+                            witnessOverrideThisCycle = true;
+                            // fall through — let the rest of doFlow promote Value to PreValue
+                        }
+                        else {
+                            const char* phase = NUMBERS[j]->hasSuspectReading ? "witness restart" : "witness pending";
+                            NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText + "Neg. Rate - Read: " + zwvalue + " - Raw: " + NUMBERS[j]->ReturnRawValue + " - Pre: " + RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + " [" + phase + "] ";
+                            NUMBERS[j]->suspectValue = NUMBERS[j]->Value;
+                            NUMBERS[j]->suspectTimestamp = imagetime;
+                            NUMBERS[j]->hasSuspectReading = true;
+
+                            NUMBERS[j]->Value = NUMBERS[j]->PreValue;
+                            NUMBERS[j]->ReturnValue = "";
+                            NUMBERS[j]->timeStampLastValue = imagetime;
+
+                            string _zw = NUMBERS[j]->name + ": Raw: " + NUMBERS[j]->ReturnRawValue + ", Value: " + NUMBERS[j]->ReturnValue + ", Status: " + NUMBERS[j]->ErrorMessageText;
+                            LogFile.WriteToFile(ESP_LOG_ERROR, TAG, _zw);
+                            WriteDataLog(j);
+                            continue;
+                        }
+                    }
                 }
             }
 
@@ -935,7 +1075,7 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
             NUMBERS[j]->FlowRateAct = (NUMBERS[j]->Value - NUMBERS[j]->PreValue) / LastPreValueTimeDifference;
             NUMBERS[j]->ReturnRateValue =  to_string(NUMBERS[j]->FlowRateAct);
 
-            if ((NUMBERS[j]->useMaxRateValue) && (NUMBERS[j]->Value != NUMBERS[j]->PreValue)) {
+            if (!witnessOverrideThisCycle && (NUMBERS[j]->useMaxRateValue) && (NUMBERS[j]->Value != NUMBERS[j]->PreValue)) {
                 double _ratedifference;
 					
                 if (NUMBERS[j]->MaxRateType == RateChange) {
@@ -950,16 +1090,81 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                 }
 
                 if (abs(_ratedifference) > abs(NUMBERS[j]->MaxRateValue)) {
-                    NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText + "Rate too high - Read: " + RundeOutput(NUMBERS[j]->Value, NUMBERS[j]->Nachkomma) + " - Pre: " + RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + " - Rate: " + RundeOutput(_ratedifference, NUMBERS[j]->Nachkomma);
-                    NUMBERS[j]->Value = NUMBERS[j]->PreValue;
-                    NUMBERS[j]->ReturnValue = "";
-                    NUMBERS[j]->ReturnRateValue = "";
-                    NUMBERS[j]->timeStampLastValue = imagetime;
+                    // LLM arbiter: same as in the neg-rate branch, but for the
+                    // "moved too fast vs. PreValue" failure mode.
+                    if (LLMFallbackArbiterEnabled() && flowTakeImage && flowTakeImage->rawImage) {
+                        LogFile.WriteHeapInfo("LLM arbiter (rate-high) - before encode");
+                        ImageData* arbImg = flowTakeImage->rawImage->writeToMemoryAsJPG(75);
+                        if (arbImg && arbImg->size > 0) {
+                            double arbValue = 0;
+                            double minutesElapsed = LastPreValueTimeDifference;  // already in minutes here
+                            if (minutesElapsed < 0) minutesElapsed = 0;
+                            bool ok = LLMFallbackArbitrateValue(
+                                arbImg->data, arbImg->size,
+                                NUMBERS[j]->PreValue, NUMBERS[j]->Value,
+                                minutesElapsed, abs(NUMBERS[j]->MaxRateValue),
+                                NUMBERS[j]->Nachkomma, &arbValue,
+                                NUMBERS[j]->name + "_arb_high");
+                            if (ok) {
+                                LogFile.WriteToFile(ESP_LOG_WARN, TAG,
+                                    NUMBERS[j]->name + ": LLM arbiter (rate-too-high) accepted " +
+                                    RundeOutput(arbValue, NUMBERS[j]->Nachkomma) +
+                                    " (CNN raw=" + RundeOutput(NUMBERS[j]->Value, NUMBERS[j]->Nachkomma) +
+                                    " PreValue=" + RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) +
+                                    " rate=" + RundeOutput(_ratedifference, NUMBERS[j]->Nachkomma) + ")");
+                                NUMBERS[j]->Value = arbValue;
+                                NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText +
+                                    "LLM arbiter accepted " +
+                                    RundeOutput(arbValue, NUMBERS[j]->Nachkomma) + " ";
+                                NUMBERS[j]->hasSuspectReading = false;
+                                witnessOverrideThisCycle = true;
+                                arbiterAcceptedThisCycle = true;
+                            }
+                        }
+                        delete arbImg;
+                    }
 
-                    string _zw = NUMBERS[j]->name + ": Raw: " + NUMBERS[j]->ReturnRawValue + ", Value: " + NUMBERS[j]->ReturnValue + ", Status: " + NUMBERS[j]->ErrorMessageText;
-                    LogFile.WriteToFile(ESP_LOG_ERROR, TAG, _zw);
-                    WriteDataLog(j);
-                    continue;
+                    if (!arbiterAcceptedThisCycle) {
+                        bool witnessConfirmed = false;
+                        if (NUMBERS[j]->hasSuspectReading) {
+                            double mb = difftime(imagetime, NUMBERS[j]->suspectTimestamp) / 60.0;
+                            double minutesBetween = (mb < 1.0) ? 1.0 : mb;
+                            double tol = abs(NUMBERS[j]->MaxRateValue);
+                            if (NUMBERS[j]->MaxRateType == RateChange) tol *= minutesBetween;
+                            tol *= 1.5;  // safety margin
+                            if (abs(NUMBERS[j]->Value - NUMBERS[j]->suspectValue) <= tol) {
+                                witnessConfirmed = true;
+                            }
+                        }
+
+                        if (witnessConfirmed) {
+                            LogFile.WriteToFile(ESP_LOG_WARN, TAG,
+                                NUMBERS[j]->name + ": two-witness confirmed rate-too-high reading; overriding PreValue " +
+                                RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + " -> " +
+                                RundeOutput(NUMBERS[j]->Value, NUMBERS[j]->Nachkomma));
+                            NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText +
+                                "Rate too high witnessed (PreValue overridden) ";
+                            NUMBERS[j]->hasSuspectReading = false;
+                            // fall through — accept the reading
+                        }
+                        else {
+                            const char* phase = NUMBERS[j]->hasSuspectReading ? "witness restart" : "witness pending";
+                            NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText + "Rate too high - Read: " + RundeOutput(NUMBERS[j]->Value, NUMBERS[j]->Nachkomma) + " - Pre: " + RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + " - Rate: " + RundeOutput(_ratedifference, NUMBERS[j]->Nachkomma) + " [" + phase + "] ";
+                            NUMBERS[j]->suspectValue = NUMBERS[j]->Value;
+                            NUMBERS[j]->suspectTimestamp = imagetime;
+                            NUMBERS[j]->hasSuspectReading = true;
+
+                            NUMBERS[j]->Value = NUMBERS[j]->PreValue;
+                            NUMBERS[j]->ReturnValue = "";
+                            NUMBERS[j]->ReturnRateValue = "";
+                            NUMBERS[j]->timeStampLastValue = imagetime;
+
+                            string _zw = NUMBERS[j]->name + ": Raw: " + NUMBERS[j]->ReturnRawValue + ", Value: " + NUMBERS[j]->ReturnValue + ", Status: " + NUMBERS[j]->ErrorMessageText;
+                            LogFile.WriteToFile(ESP_LOG_ERROR, TAG, _zw);
+                            WriteDataLog(j);
+                            continue;
+                        }
+                    }
                 }
             }
 
@@ -968,6 +1173,14 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
         #endif
         }
         
+        // Clean reading committed — invalidate any held-pending witness.
+        if (NUMBERS[j]->hasSuspectReading) {
+            LogFile.WriteToFile(ESP_LOG_DEBUG, TAG,
+                NUMBERS[j]->name + ": clean reading discards pending suspect " +
+                std::to_string(NUMBERS[j]->suspectValue));
+            NUMBERS[j]->hasSuspectReading = false;
+        }
+
         NUMBERS[j]->ReturnChangeAbsolute = RundeOutput(NUMBERS[j]->Value - NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma);
         NUMBERS[j]->PreValue = NUMBERS[j]->Value;
         NUMBERS[j]->PreValueOkay = true;

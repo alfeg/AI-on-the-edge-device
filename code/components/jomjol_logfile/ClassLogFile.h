@@ -25,6 +25,7 @@ public:
     void WriteHeapInfo(std::string _id);
 
     void setLogLevel(esp_log_level_t _logLevel);
+    esp_log_level_t GetLogLevel() const { return loglevel; }
     void SetLogFileRetention(unsigned short _LogFileRetentionInDays);
     void SetDataLogRetention(unsigned short _DataLogRetentionInDays);
     void SetDataLogToSD(bool _doDataLogToSD);
@@ -32,6 +33,10 @@ public:
 
     void WriteToFile(esp_log_level_t level, std::string tag, std::string message, bool _time);
     void WriteToFile(esp_log_level_t level, std::string tag, std::string message);
+
+    // Append a multi-line entry (newlines preserved) to /sdcard/log/llm/llm_YYYY-MM-DD.txt.
+    // Used by the LLM fallback to keep full request/response transcripts.
+    void WriteToLLMLog(const std::string& entry);
 
     void CloseLogFileAppendHandle();
 

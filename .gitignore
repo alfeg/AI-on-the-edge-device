@@ -25,3 +25,9 @@ code/edgeAI.code-workspace
 .DS_Store
 tools/parameter-tooltip-generator/html
 tools/parameter-tooltip-generator/AI-on-the-edge-device-docs
+build-output/
+docker-build.log
+
+# Claude Code per-user (permissions, env). Project-wide skills under
+# .claude/skills/ ARE committed.
+.claude/settings.local.json

@@ -255,6 +255,29 @@ void ClassLogFile::WriteToFile(esp_log_level_t level, std::string tag, std::stri
 }
 
 
+void ClassLogFile::WriteToLLMLog(const std::string& entry)
+{
+    time_t rawtime;
+    struct tm* timeinfo;
+    char fname[40];
+
+    time(&rawtime);
+    timeinfo = localtime(&rawtime);
+    strftime(fname, sizeof(fname), "llm_%Y-%m-%d.txt", timeinfo);
+
+    std::string logpath = std::string("/sdcard/log/llm/") + fname;
+
+    FILE* f = fopen(logpath.c_str(), "a");
+    if (!f) {
+        ESP_LOGE(TAG, "Can't open LLM log file %s", logpath.c_str());
+        return;
+    }
+    fputs(entry.c_str(), f);
+    if (entry.empty() || entry.back() != '\n') fputs("\n", f);
+    fclose(f);
+}
+
+
 std::string ClassLogFile::GetCurrentFileNameData()
 {
     time_t rawtime;
@@ -407,6 +430,7 @@ bool ClassLogFile::CreateLogDirectories()
     bRetval = MakeDir("/sdcard/log/digit");
     bRetval = MakeDir("/sdcard/log/message");
     bRetval = MakeDir("/sdcard/log/source");
+    bRetval = MakeDir("/sdcard/log/llm");
 
     return bRetval;
 }

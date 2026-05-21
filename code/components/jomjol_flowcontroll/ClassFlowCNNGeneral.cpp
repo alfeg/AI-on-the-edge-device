@@ -4,11 +4,13 @@
 #include <iomanip> 
 #include <sys/types.h>
 #include <sstream>      // std::stringstream
+#include <vector>
 
 #include "CTfLiteClass.h"
 #include "ClassLogFile.h"
 #include "esp_log.h"
 #include "../../include/defines.h"
+#include "LLMFallback.h"
 
 static const char* TAG = "CNN";
 
@@ -638,6 +640,8 @@ bool ClassFlowCNNGeneral::doNeuralNetwork(string time) {
         return true;
     }
 
+    LogFile.WriteHeapInfo("doNeuralNetwork - start");
+
     string logPath = CreateLogFolder(time);
 
     CTfLiteClass *tflite = new CTfLiteClass;  
@@ -658,6 +662,12 @@ bool ClassFlowCNNGeneral::doNeuralNetwork(string time) {
         delete tflite;
         return false;
     }
+
+    // Collect ROIs that need LLM fallback — processed after TFLite is freed.
+    // 'context' explains *why* this ROI was queued; it's logged at queue time
+    // and passed into LLMFallbackQueryDigit so it lands in the transcript.
+    struct LLMPendingROI { int n; int roi; std::string context; };
+    std::vector<LLMPendingROI> llmPending;
 
     // For each NUMBER
     for (int n = 0; n < GENERAL.size(); ++n) {
@@ -702,6 +712,17 @@ bool ClassFlowCNNGeneral::doNeuralNetwork(string time) {
                         GENERAL[n]->ROI[roi]->result_klasse = tflite->GetClassFromImageBasis(GENERAL[n]->ROI[roi]->image);
                         ESP_LOGD(TAG, "General result (Digit)%i: %d", roi, GENERAL[n]->ROI[roi]->result_klasse);
 
+                        {
+                            int klass = GENERAL[n]->ROI[roi]->result_klasse;
+                            float conf = (klass >= 0 && klass < 10) ? tflite->GetOutputValue(klass) : 0.0f;
+                            if (conf < 1.0f) {
+                                LogFile.WriteToFile(ESP_LOG_INFO, TAG,
+                                    "Digit ROI " + GENERAL[n]->ROI[roi]->name +
+                                    ": class=" + to_string(klass) +
+                                    " confidence=" + to_string(conf));
+                            }
+                        }
+
                         if (isLogImage) {
                             string _imagename = GENERAL[n]->name +  "_" + GENERAL[n]->ROI[roi]->name;
                             if (isLogImageSelect) {
@@ -711,6 +732,28 @@ bool ClassFlowCNNGeneral::doNeuralNetwork(string time) {
                             }
                             else {
                                 LogImage(logPath, _imagename, NULL, &GENERAL[n]->ROI[roi]->result_klasse, time, GENERAL[n]->ROI[roi]->image_org);
+                            }
+                        }
+
+                        if (LLMFallbackIsActive()) {
+                            int klass = GENERAL[n]->ROI[roi]->result_klasse;
+                            float conf = (klass >= 0 && klass < 10) ? tflite->GetOutputValue(klass) : 0.0f;
+                            float threshold = LLMFallbackGetConfidenceThreshold();
+                            bool hardFail = (klass < 0 || klass >= 10);
+                            bool lowConf  = (!hardFail && threshold > 0.0f && conf < threshold);
+                            if (hardFail || lowConf) {
+                                char ctx[128];
+                                if (hardFail) {
+                                    snprintf(ctx, sizeof(ctx),
+                                        "type=Digit class=%d reason=hardFail (out of 0-9)", klass);
+                                } else {
+                                    snprintf(ctx, sizeof(ctx),
+                                        "type=Digit class=%d conf=%.4f reason=lowConf threshold=%.4f",
+                                        klass, conf, threshold);
+                                }
+                                LogFile.WriteToFile(ESP_LOG_INFO, TAG,
+                                    "LLM queue: ROI '" + GENERAL[n]->ROI[roi]->name + "' " + ctx);
+                                llmPending.push_back({n, roi, ctx});
                             }
                         }
                     } break;
@@ -759,6 +802,14 @@ bool ClassFlowCNNGeneral::doNeuralNetwork(string time) {
                         zw = zw + " result: " + to_string(result) + " _fit: " + to_string(_fit);
                         LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, zw);
 
+                        if (_val < 1.0f) {
+                            LogFile.WriteToFile(ESP_LOG_INFO, TAG,
+                                "DoubleHyprid10 ROI " + GENERAL[n]->ROI[roi]->name +
+                                ": class=" + to_string(_num) +
+                                " confidence=" + to_string(_val) +
+                                " result=" + to_string(result));
+                        }
+
                         _result_save_file = result;
 
                         if (_fit < CNNGoodThreshold) {
@@ -774,6 +825,27 @@ bool ClassFlowCNNGeneral::doNeuralNetwork(string time) {
 
                         GENERAL[n]->ROI[roi]->result_float = result;
                         ESP_LOGD(TAG, "Result General(Analog)%i: %f", roi, GENERAL[n]->ROI[roi]->result_float);
+
+                        if (LLMFallbackIsActive()) {
+                            float threshold = LLMFallbackGetConfidenceThreshold();
+                            bool hardReject = GENERAL[n]->ROI[roi]->isReject;
+                            bool lowConf    = (!hardReject && threshold > 0.0f && _val < threshold);
+                            if (hardReject || lowConf) {
+                                char ctx[160];
+                                if (hardReject) {
+                                    snprintf(ctx, sizeof(ctx),
+                                        "type=DoubleHyprid10 num=%d val=%.4f result=%.4f fit=%.4f reason=hardReject (fit<CNNGoodThreshold)",
+                                        _num, _val, result, _fit);
+                                } else {
+                                    snprintf(ctx, sizeof(ctx),
+                                        "type=DoubleHyprid10 num=%d val=%.4f result=%.4f reason=lowConf threshold=%.4f",
+                                        _num, _val, result, threshold);
+                                }
+                                LogFile.WriteToFile(ESP_LOG_INFO, TAG,
+                                    "LLM queue: ROI '" + GENERAL[n]->ROI[roi]->name + "' " + ctx);
+                                llmPending.push_back({n, roi, ctx});
+                            }
+                        }
 
                         if (isLogImage) {
                             string _imagename = GENERAL[n]->name +  "_" + GENERAL[n]->ROI[roi]->name;
@@ -833,6 +905,62 @@ bool ClassFlowCNNGeneral::doNeuralNetwork(string time) {
     }
 
     delete tflite;
+    tflite = nullptr;
+
+    /* ------------------------------------------------------------------
+     * Deferred LLM fallback pass — TFLite memory is now fully freed
+     * ------------------------------------------------------------------ */
+    if (!llmPending.empty()) {
+        LogFile.WriteHeapInfo("LLM fallback pass - after TFLite freed");
+        LogFile.WriteToFile(ESP_LOG_INFO, TAG,
+            "LLM fallback: " + std::to_string(llmPending.size()) + " ROI(s) queued");
+
+        for (const auto& p : llmPending) {
+            auto* roiObj = GENERAL[p.n]->ROI[p.roi];
+            LogFile.WriteHeapInfo("LLM fallback - before JPEG encode '" + roiObj->name + "'");
+
+            // Vision models (e.g. qwen3-vl) require both dimensions >= 32px.
+            // ROI images are typically ~20x32, so upscale if needed.
+            static const int LLM_MIN_DIM = 32;
+            CImageBasis* srcImg = roiObj->image;
+            CImageBasis* upscaled = nullptr;
+            if (srcImg->width < LLM_MIN_DIM || srcImg->height < LLM_MIN_DIM) {
+                int scale = 1;
+                while (srcImg->width * scale < LLM_MIN_DIM || srcImg->height * scale < LLM_MIN_DIM)
+                    scale *= 2;
+                int newW = srcImg->width * scale;
+                int newH = srcImg->height * scale;
+                upscaled = new CImageBasis("llm_upscale", srcImg);
+                upscaled->Resize(newW, newH);
+                srcImg = upscaled;
+                LogFile.WriteToFile(ESP_LOG_DEBUG, TAG,
+                    "LLM: upscaled ROI '" + roiObj->name + "' " +
+                    std::to_string(roiObj->image->width) + "x" +
+                    std::to_string(roiObj->image->height) + " -> " +
+                    std::to_string(newW) + "x" + std::to_string(newH));
+            }
+
+            ImageData* imgData = srcImg->writeToMemoryAsJPG(90);
+            delete upscaled;
+            if (imgData && imgData->size > 0) {
+                LogFile.WriteHeapInfo("LLM fallback - before QueryDigit");
+                std::string llmLabel = GENERAL[p.n]->name + "_" + roiObj->name;
+                int llmResult = LLMFallbackQueryDigit(imgData->data, imgData->size,
+                                                      llmLabel, p.context);
+                LogFile.WriteHeapInfo("LLM fallback - after QueryDigit");
+                if (llmResult >= 0 && llmResult <= 9) {
+                    roiObj->result_klasse = llmResult;
+                    roiObj->result_float  = (float)llmResult;
+                    roiObj->isReject      = false;
+                    LogFile.WriteToFile(ESP_LOG_INFO, TAG,
+                        "LLM fallback corrected ROI '" + roiObj->name +
+                        "' to: " + std::to_string(llmResult));
+                }
+            }
+            delete imgData;
+        }
+        LogFile.WriteHeapInfo("LLM fallback pass - done");
+    }
 
     return true;
 }
