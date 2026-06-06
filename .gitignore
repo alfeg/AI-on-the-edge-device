@@ -31,3 +31,6 @@ docker-build.log
 # Claude Code per-user (permissions, env). Project-wide skills under
 # .claude/skills/ ARE committed.
 .claude/settings.local.json
+
+# Local device log pulls / analysis scratch (not for commit)
+device-logs/
