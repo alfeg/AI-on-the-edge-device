@@ -16,8 +16,14 @@ class ClassFlowPostProcessing :
 protected:
     bool UpdatePreValueINI;
 
-    int PreValueAgeStartup; 
+    int PreValueAgeStartup;
     bool ErrorMessage;
+
+    // Anti-stuck recovery: number of consecutive cycles a sequence may have its
+    // live reading clamped back to PreValue before a stable cluster of agreeing
+    // (but rejected) readings is allowed to re-anchor a poisoned PreValue.
+    // 0 disables the recovery (legacy behaviour).
+    int StuckEscapeCycles;
 	
     ClassFlowCNNGeneral* flowAnalog;
     ClassFlowCNNGeneral* flowDigit;    

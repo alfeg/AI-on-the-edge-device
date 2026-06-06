@@ -28,10 +28,12 @@ struct LLMConfig {
     float       confidenceThreshold     = 0.0f; ///< 0.0 = only hard failures; >0 also catches low-confidence recognitions
     bool        arbitrateRateViolations = false; ///< When true, ask the LLM to break the tie on neg-rate / rate-too-high before falling back to two-witness logic
     bool        logConversations        = true;  ///< When true, persist each request/response to /sdcard/log/llm/. Disable to save SD wear.
+    int         arbiterMinIntervalSec   = 0;     ///< Minimum seconds between rate-arbiter calls per number sequence; 0 = unthrottled. Stops a stuck meter from triggering a call every cycle.
 
     std::string endpoint;      ///< Base URL — e.g. "https://api.openai.com/v1" or "http://192.168.1.50:11434"
     std::string apiKey;        ///< Bearer token; empty = no auth header
     std::string model;         ///< e.g. "gpt-4o-mini" or "llava:7b"
+    std::string arbiterModel;  ///< Alternative model for the rate-violation arbiter; falls back to `model` when empty
     std::string extraHeaders;  ///< "Name=Value|Name2=Value2"
     std::string prompt;        ///< System prompt sent with each image; empty = use built-in default
 };
@@ -85,6 +87,13 @@ int LLMFallbackQueryDigit(const uint8_t* jpegData, size_t jpegLen,
  * LLMFallbackIsActive() and the [LLMFallback] ArbitrateRateViolations flag.
  */
 bool LLMFallbackArbiterEnabled();
+
+/**
+ * Returns the configured minimum interval (seconds) between rate-arbiter calls
+ * per number sequence. 0 means unthrottled. Read by ClassFlowPostProcessing to
+ * budget how often the vision model is consulted.
+ */
+int LLMFallbackArbiterMinIntervalSec();
 
 /**
  * Ask the LLM to read the actual meter value when post-processing detects a

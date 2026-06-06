@@ -300,18 +300,21 @@ static std::string buildArbiterPrompt(double preValue, double currentRaw,
                                       double minutesElapsed, double maxRate,
                                       int decimalPlaces)
 {
-    char buf[768];
+    // IMPORTANT: leak NO candidate numbers (previous value / CNN reading / rate)
+    // into the prompt. A vision model that cannot fully resolve the dial tends to
+    // *echo* a number it was handed rather than read the image — field transcripts
+    // showed ~35 % of answers were a verbatim copy of the PreValue we supplied,
+    // which silently re-pinned a poisoned reading. Ask it to read the dial cold;
+    // ClassFlowPostProcessing re-validates the answer against the live reading and
+    // PreValue before trusting it.
+    (void) preValue; (void) currentRaw; (void) minutesElapsed; (void) maxRate;
+
+    char buf[512];
     int n = snprintf(buf, sizeof(buf),
-        "This image shows the face of a utility meter. The previous accepted reading was %.*f "
-        "(%.1f minutes ago). A computer vision model just read the meter as %.*f, but that change "
-        "exceeds the maximum plausible rate of %.*f per minute, so the CNN may be wrong. "
-        "Look at the image yourself and reply with the actual current meter value as a single number "
-        "with %d decimal place(s). Reply with ONLY the number — no words, no units, no explanation. "
-        "If you genuinely cannot read the meter, reply with the single uppercase letter N.",
-        decimalPlaces, preValue,
-        minutesElapsed,
-        decimalPlaces, currentRaw,
-        decimalPlaces, maxRate,
+        "This image shows the face of a utility meter — a mechanical odometer-style row "
+        "of digits. Read the digits left to right exactly as they appear. Reply with ONLY "
+        "the number, using %d decimal place(s) — no words, no units, no explanation. "
+        "If you genuinely cannot read it, reply with the single uppercase letter N.",
         decimalPlaces);
     if (n < 0) return std::string();
     return std::string(buf);
@@ -345,6 +348,7 @@ static std::string sanitiseLabel(const std::string& in)
 using LLMResponseHandler = std::function<std::string(const char* body, int bodyLen, esp_err_t err, int httpStatus)>;
 
 static void llmDoRequest(const uint8_t* jpegData, size_t jpegLen,
+                         const std::string& model,
                          const std::string& prompt,
                          const std::string& label,
                          const std::string& context,
@@ -392,10 +396,10 @@ static void llmDoRequest(const uint8_t* jpegData, size_t jpegLen,
     std::string url, body;
     if (s_cfg.provider == LLMProvider::OpenAI) {
         url  = s_cfg.endpoint + "/chat/completions";
-        body = buildOpenAIBody(s_cfg.model, b64Buf, s_cfg.maxTokens, prompt);
+        body = buildOpenAIBody(model, b64Buf, s_cfg.maxTokens, prompt);
     } else {
         url  = s_cfg.endpoint + "/api/chat";
-        body = buildOllamaBody(s_cfg.model, b64Buf, s_cfg.maxTokens, prompt);
+        body = buildOllamaBody(model, b64Buf, s_cfg.maxTokens, prompt);
     }
     free(b64Buf);
     b64Buf = nullptr;
@@ -488,7 +492,7 @@ static void llmDoRequest(const uint8_t* jpegData, size_t jpegLen,
         if (!context.empty()) entry += "Context:  " + context + "\n";
         entry += "URL:      " + url + "\n";
         entry += "Provider: " + providerName + "\n";
-        entry += "Model:    " + s_cfg.model + "\n";
+        entry += "Model:    " + model + "\n";
         entry += "Prompt:   " + prompt + "\n";
         entry += "ReqBody:  " + std::to_string(bodyFullSize) + "B (image inlined as base64)\n";
         if (err != ESP_OK) {
@@ -537,11 +541,14 @@ void LLMFallbackInit(const LLMConfig& cfg)
     LogFile.WriteHeapInfo("LLMFallbackInit - done");
     if (s_active) {
         std::string provider = (cfg.provider == LLMProvider::OpenAI) ? "OpenAI" : "Ollama";
-        LogFile.WriteToFile(ESP_LOG_INFO, TAG,
-            "LLM fallback active. Provider=" + provider +
-            " ConfidenceThreshold=" + std::to_string(cfg.confidenceThreshold) +
+        std::string msg = "LLM fallback active. Provider=" + provider +
+            " Model=" + cfg.model;
+        if (!cfg.arbiterModel.empty())
+            msg += " ArbiterModel=" + cfg.arbiterModel;
+        msg += " ConfidenceThreshold=" + std::to_string(cfg.confidenceThreshold) +
             " ArbitrateRateViolations=" + (s_arbiterActive ? "true" : "false") +
-            " LogConversations=" + (cfg.logConversations ? "true" : "false"));
+            " LogConversations=" + (cfg.logConversations ? "true" : "false");
+        LogFile.WriteToFile(ESP_LOG_INFO, TAG, msg);
     } else {
         LogFile.WriteToFile(ESP_LOG_INFO, TAG, "LLM fallback disabled");
     }
@@ -555,6 +562,11 @@ bool LLMFallbackIsActive()
 bool LLMFallbackArbiterEnabled()
 {
     return s_arbiterActive;
+}
+
+int LLMFallbackArbiterMinIntervalSec()
+{
+    return s_cfg.arbiterMinIntervalSec;
 }
 
 float LLMFallbackGetConfidenceThreshold()
@@ -572,7 +584,7 @@ int LLMFallbackQueryDigit(const uint8_t* jpegData, size_t jpegLen,
         s_cfg.prompt.empty() ? std::string(DEFAULT_PROMPT) : s_cfg.prompt;
 
     int digit = -1;
-    llmDoRequest(jpegData, jpegLen, promptUsed, label, context,
+    llmDoRequest(jpegData, jpegLen, s_cfg.model, promptUsed, label, context,
         [&](const char* buf, int /*len*/, esp_err_t err, int httpStatus) -> std::string {
             if (err == ESP_OK && httpStatus == 200) {
                 digit = parseDigitFromResponse(buf, s_cfg.provider);
@@ -607,7 +619,10 @@ bool LLMFallbackArbitrateValue(const uint8_t* jpegData, size_t jpegLen,
     bool   parsed = false;
     double parsedValue = 0;
 
-    llmDoRequest(jpegData, jpegLen, prompt, label, context,
+    const std::string& effectiveModel =
+        s_cfg.arbiterModel.empty() ? s_cfg.model : s_cfg.arbiterModel;
+
+    llmDoRequest(jpegData, jpegLen, effectiveModel, prompt, label, context,
         [&](const char* buf, int /*len*/, esp_err_t err, int httpStatus) -> std::string {
             if (err == ESP_OK && httpStatus == 200) {
                 parsed = parseNumberFromResponse(buf, s_cfg.provider, &parsedValue);
