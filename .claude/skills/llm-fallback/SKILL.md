@@ -9,6 +9,8 @@ This pipeline turns CNN digit predictions into a committed meter value, with an 
 
 A full evidence-based analysis of the known failure modes lives in [`docs/llm-fallback-analysis/`](../../docs/llm-fallback-analysis/). Start there for *why*; this skill is the *where* and the *don't-break-this*.
 
+**Canonical arbiter reference:** [`docs/llm-fallback-analysis/arbiter-reference.md`](../../docs/llm-fallback-analysis/arbiter-reference.md) — the living doc on how the rate arbiter works *now* (decision flow, config knobs, LiteLLM routing, observed behaviour) and exactly how to change each part. **Keep it updated when arbiter behaviour changes.**
+
 ## The three subsystems and their files
 
 1. **Per-digit fallback** — `code/components/jomjol_llm_fallback/LLMFallback.{h,cpp}`

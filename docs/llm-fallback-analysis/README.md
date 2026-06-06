@@ -47,6 +47,7 @@ New config keys (full web-UI round-trip + param-docs added): `[PostProcessing] S
 | 4 | [04-arbiter-redesign.md](04-arbiter-redesign.md) | Why does the arbiter over-fire and fail; what should it be fed (history? estimates?); when should it run. |
 | 5 | [05-handling-wrong-visual-recognition.md](05-handling-wrong-visual-recognition.md) | The full menu of techniques to handle wrong visual recognition. |
 | 6 | [06-training-own-model.md](06-training-own-model.md) | Do the digit logs hold enough data to train our own model? |
+| ★ | [arbiter-reference.md](arbiter-reference.md) | **Living reference:** how the rate arbiter works *now* and how to change/tune it. Keep updated. |
 
 A companion Claude Code skill — [`.claude/skills/llm-fallback/SKILL.md`](../../.claude/skills/llm-fallback/SKILL.md) — captures the data-flow map and the gotchas so future work on this code is faster and safer.
 
