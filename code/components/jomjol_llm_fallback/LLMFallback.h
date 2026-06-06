@@ -24,7 +24,7 @@ enum class LLMProvider {
 struct LLMConfig {
     LLMProvider provider                = LLMProvider::None;
     int         timeoutMs               = 5000;
-    int         maxTokens               = 200;  ///< max_tokens (OpenAI) / num_predict (Ollama); set high enough for thinking models
+    int         maxTokens               = 2048; ///< max_tokens (OpenAI) / num_predict (Ollama). Generous by default: thinking-capable vision models (qwen3-vl, gemma) spend hundreds of tokens reasoning before the answer; a low cap truncates them mid-thought. Lower it only to cap cost on metered cloud APIs.
     float       confidenceThreshold     = 0.0f; ///< 0.0 = only hard failures; >0 also catches low-confidence recognitions
     bool        arbitrateRateViolations = false; ///< When true, ask the LLM to break the tie on neg-rate / rate-too-high before falling back to two-witness logic
     bool        logConversations        = true;  ///< When true, persist each request/response to /sdcard/log/llm/. Disable to save SD wear.

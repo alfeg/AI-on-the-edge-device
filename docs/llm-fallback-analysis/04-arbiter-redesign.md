@@ -103,6 +103,20 @@ The leading "9" digit is re-queried every cycle (125×/day) and always returns `
 | Per-digit calls | 1 224 | ~10–20× fewer with sticky cache |
 | Stuck episodes | multi-hour | ≤ `StuckEscapeCycles` |
 
+## 4.7.1 Local arbiter models — measured
+
+Replaying saved full-frame arbiter JPEGs (meter truly at `09700.xx`) against local Ollama vision models with the de-leaked prompt:
+
+| Model | Reads integer part (`09700`) | Notes | Speed |
+|-------|------------------------------|-------|-------|
+| **gemma4:12b** | **12/12 (100%)** | Vision is fine **once `"think": false` is set** (it's a reasoning model; otherwise it spends the whole token budget thinking and returns empty `content`). Only the *decimal placement / trailing digits* are wrong (`097000.26`), so the raw answer still fails the 2% corroboration check. | ~0.8 s |
+| **granite3.2-vision** | poor | Misperceives — sometimes reads the meter's printed **serial number** (`203030`), drops digits, inconsistent count. | ~0.8 s |
+
+Takeaways:
+- **Don't cap tokens for thinking models.** The old `MaxTokens=200` default truncates a reasoning model before it answers (qwen3-vl used 535 completion tokens for one number). Default raised to `2048`; Ollama additionally gets `"think": false`.
+- **gemma4:12b is a viable *local* arbiter** for the high-order magnitude — but only after two fixes: send a **tight ROI crop** (not the full meter face with serial/label/glare), and either give a **format hint** (N integer + M decimal digits) or reconstruct the value from the digit string using `Nachkomma`. Its 100% integer-read rate on a hard full-frame image is promising.
+- This is why the firmware **re-validates** (§4.4): gemma's mis-formatted `097000.26` and granite's `203030` both fail corroboration and are safely discarded — a weak local arbiter degrades to "no opinion", never to a poisoned commit.
+
 ## 4.8 The cloud fallback (now safe to add)
 
 Once §4.1 (rate) + §4.4 (re-validation) are in, the deferred cloud fallback becomes cheap and low-risk:
