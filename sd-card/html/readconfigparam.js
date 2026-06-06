@@ -182,6 +182,7 @@ function ParseConfig() {
     // ParamAddValue(param, catname, "IgnoreAllNaN", 1, true, "false");
     ParamAddValue(param, catname, "ErrorMessage");
     ParamAddValue(param, catname, "CheckDigitIncreaseConsistency", 1, true, "false");
+    ParamAddValue(param, catname, "StuckEscapeCycles", 1, false, "6");
 
     var catname = "MQTT";
     category[catname] = new Object();
@@ -250,10 +251,12 @@ function ParseConfig() {
     ParamAddValue(param, catname, "Endpoint");
     ParamAddValue(param, catname, "ApiKey");
     ParamAddValue(param, catname, "Model");
+    ParamAddValue(param, catname, "ArbiterModel");
     ParamAddValue(param, catname, "AdditionalHeaders");
     ParamAddValue(param, catname, "Prompt");
     ParamAddValue(param, catname, "ArbitrateRateViolations", 1, false, "false");
     ParamAddValue(param, catname, "LogConversations", 1, false, "true");
+    ParamAddValue(param, catname, "ArbiterMinIntervalSec", 1, false, "0");
 
     var catname = "GPIO";
     category[catname] = new Object();

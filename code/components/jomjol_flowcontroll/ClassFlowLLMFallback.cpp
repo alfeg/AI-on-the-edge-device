@@ -59,6 +59,9 @@ bool ClassFlowLLMFallback::ReadParameter(FILE* pfile, string& aktparamgraph)
         else if (key == "MODEL") {
             cfg.model = val;
         }
+        else if (key == "ARBITERMODEL") {
+            cfg.arbiterModel = val;
+        }
         else if (key == "ADDITIONALHEADERS") {
             cfg.extraHeaders = val;
         }
@@ -72,6 +75,9 @@ bool ClassFlowLLMFallback::ReadParameter(FILE* pfile, string& aktparamgraph)
         else if (key == "LOGCONVERSATIONS") {
             std::string uval = toUpper(val);
             cfg.logConversations = (uval == "TRUE" || uval == "1" || uval == "YES" || uval == "ON");
+        }
+        else if (key == "ARBITERMININTERVALSEC") {
+            if (!val.empty()) cfg.arbiterMinIntervalSec = std::stoi(val);
         }
     }
 

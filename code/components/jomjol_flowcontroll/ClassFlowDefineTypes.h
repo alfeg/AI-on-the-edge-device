@@ -58,6 +58,19 @@ struct NumberPost {
     bool hasSuspectReading;
     double suspectValue;
     time_t suspectTimestamp;
+
+    // Anti-poisoning / anti-stuck recovery (volatile, not persisted).
+    // When a rate guard repeatedly clamps the live reading back to PreValue,
+    // these track how long that has gone on and what the (rejected) live
+    // readings were. A stable cluster of agreeing-but-rejected readings is
+    // evidence that PreValue itself is poisoned, so it can be re-anchored.
+    int consecutiveClampCount;
+    std::vector<double> clampHistory;
+
+    // Rate-arbiter call budget (volatile). Throttles how often the vision LLM
+    // is consulted so a stuck state cannot trigger an arbiter call every cycle.
+    time_t lastArbiterCall;
+
     string timeStamp;           // localTimeStr; timestamp of last valid reading formatted as local time
     double FlowRateAct;         // currentRate; ΔValue/min; since usage is not limited to water meters, the physical unit is not known.
     double PreValue;            // lastValidValue; most recent value that could be read w/o any errors

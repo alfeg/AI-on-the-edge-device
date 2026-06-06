@@ -877,6 +877,18 @@
             <td>$TOOLTIP_PostProcessing_PreValueAgeStartup</td>
         </tr>
 
+        <tr class="expert" unused_id="PostProcessing_StuckEscapeCycles_ex">
+            <td class="indent1">
+                <input type="checkbox" id="PostProcessing_StuckEscapeCycles_enabled" value="1" onclick='InvertEnableItem("PostProcessing", "StuckEscapeCycles")' unchecked>
+                <label for=PostProcessing_StuckEscapeCycles_enabled><class id="PostProcessing_StuckEscapeCycles_text" style="color:black;">Stuck Recovery Cycles</class></label>
+            </td>
+            <td>
+                <input required type="number" id="PostProcessing_StuckEscapeCycles_value1" size="13" min="0"
+                    oninput="(!validity.rangeUnderflow||(value=0)) && (!validity.stepMismatch||(value=parseInt(this.value)));">cycles
+            </td>
+            <td>$TOOLTIP_PostProcessing_StuckEscapeCycles</td>
+        </tr>
+
         <tr class="expert" unused_id="ex12">
             <td class="indent1">
                 <label><class id="PostProcessing_ErrorMessage_text" style="color:black;">Skip Messages on Error</class></label>
@@ -2052,6 +2064,17 @@
 
         <tr class="LLMFallbackItem expert">
             <td class="indent1">
+                <input type="checkbox" id="LLMFallback_ArbiterMinIntervalSec_enabled" value="1" onclick='InvertEnableItem("LLMFallback", "ArbiterMinIntervalSec")' unchecked>
+                <label for=LLMFallback_ArbiterMinIntervalSec_enabled><class id="LLMFallback_ArbiterMinIntervalSec_text" style="color:black;">Arbiter Min Interval (s)</class></label>
+            </td>
+            <td>
+                <input required type="number" id="LLMFallback_ArbiterMinIntervalSec_value1" min="0" step="1">
+            </td>
+            <td>$TOOLTIP_LLMFallback_ArbiterMinIntervalSec</td>
+        </tr>
+
+        <tr class="LLMFallbackItem expert">
+            <td class="indent1">
                 <input type="checkbox" id="LLMFallback_MaxTokens_enabled" value="1" onclick='InvertEnableItem("LLMFallback", "MaxTokens")' unchecked>
                 <label for=LLMFallback_MaxTokens_enabled><class id="LLMFallback_MaxTokens_text" style="color:black;">Max Tokens</class></label>
             </td>
@@ -2083,7 +2106,7 @@
             <td>$TOOLTIP_LLMFallback_ApiKey</td>
         </tr>
 
-        <tr class="LLMFallbackItem">
+        <tr class="LLMFallbackItem expert">
             <td class="indent1">
                 <input type="checkbox" id="LLMFallback_Model_enabled" value="1" onclick='InvertEnableItem("LLMFallback", "Model")' unchecked>
                 <label for=LLMFallback_Model_enabled><class id="LLMFallback_Model_text" style="color:black;">Model</class></label>
@@ -2092,6 +2115,17 @@
                 <input required type="text" id="LLMFallback_Model_value1">
             </td>
             <td>$TOOLTIP_LLMFallback_Model</td>
+        </tr>
+
+        <tr class="LLMFallbackItem expert">
+            <td class="indent1">
+                <input type="checkbox" id="LLMFallback_ArbiterModel_enabled" value="1" onclick='InvertEnableItem("LLMFallback", "ArbiterModel")' unchecked>
+                <label for=LLMFallback_ArbiterModel_enabled><class id="LLMFallback_ArbiterModel_text" style="color:black;">Arbiter Model</class></label>
+            </td>
+            <td>
+                <input required type="text" id="LLMFallback_ArbiterModel_value1">
+            </td>
+            <td>$TOOLTIP_LLMFallback_ArbiterModel</td>
         </tr>
 
         <tr class="LLMFallbackItem expert">
@@ -2509,7 +2543,8 @@ function UpdateInput() {
     WriteParameter(param, category, "Analog", "ROIImagesRetention", true);		
     
     WriteParameter(param, category, "PostProcessing", "PreValueUse", false);		
-    WriteParameter(param, category, "PostProcessing", "PreValueAgeStartup", true);		
+    WriteParameter(param, category, "PostProcessing", "PreValueAgeStartup", true);
+    WriteParameter(param, category, "PostProcessing", "StuckEscapeCycles", true);
     WriteParameter(param, category, "PostProcessing", "ErrorMessage", false);
     // WriteParameter(param, category, "PostProcessing", "CheckDigitIncreaseConsistency", false);
 
@@ -2548,10 +2583,12 @@ function UpdateInput() {
     WriteParameter(param, category, "LLMFallback", "Provider", true);
     WriteParameter(param, category, "LLMFallback", "ConfidenceThreshold", true);
     WriteParameter(param, category, "LLMFallback", "TimeoutMs", true);
+    WriteParameter(param, category, "LLMFallback", "ArbiterMinIntervalSec", true);
     WriteParameter(param, category, "LLMFallback", "MaxTokens", true);
     WriteParameter(param, category, "LLMFallback", "Endpoint", true);
     WriteParameter(param, category, "LLMFallback", "ApiKey", true);
     WriteParameter(param, category, "LLMFallback", "Model", true);
+    WriteParameter(param, category, "LLMFallback", "ArbiterModel", true);
     WriteParameter(param, category, "LLMFallback", "AdditionalHeaders", true);
     WriteParameter(param, category, "LLMFallback", "Prompt", true);
     WriteParameter(param, category, "LLMFallback", "ArbitrateRateViolations", false);
@@ -2691,6 +2728,7 @@ function ReadParameterAll() {
 
     ReadParameter(param, "PostProcessing", "PreValueUse", false);
     ReadParameter(param, "PostProcessing", "PreValueAgeStartup", true);
+    ReadParameter(param, "PostProcessing", "StuckEscapeCycles", true);
     ReadParameter(param, "PostProcessing", "ErrorMessage", false);
     // ReadParameter(param, "PostProcessing", "CheckDigitIncreaseConsistency", false);	
 
@@ -2729,10 +2767,12 @@ function ReadParameterAll() {
     ReadParameter(param, "LLMFallback", "Provider", true);
     ReadParameter(param, "LLMFallback", "ConfidenceThreshold", true);
     ReadParameter(param, "LLMFallback", "TimeoutMs", true);
+    ReadParameter(param, "LLMFallback", "ArbiterMinIntervalSec", true);
     ReadParameter(param, "LLMFallback", "MaxTokens", true);
     ReadParameter(param, "LLMFallback", "Endpoint", true);
     ReadParameter(param, "LLMFallback", "ApiKey", true);
     ReadParameter(param, "LLMFallback", "Model", true);
+    ReadParameter(param, "LLMFallback", "ArbiterModel", true);
     ReadParameter(param, "LLMFallback", "AdditionalHeaders", true);
     ReadParameter(param, "LLMFallback", "Prompt", true);
     ReadParameter(param, "LLMFallback", "ArbitrateRateViolations", false);

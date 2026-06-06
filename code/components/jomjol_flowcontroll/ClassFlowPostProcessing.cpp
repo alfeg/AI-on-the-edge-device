@@ -6,6 +6,9 @@
 
 #include <iomanip>
 #include <sstream>
+#include <algorithm>
+#include <cmath>
+#include <vector>
 
 #include <time.h>
 
@@ -15,6 +18,86 @@
 #include "../../include/defines.h"
 
 static const char* TAG = "POSTPROC";
+
+/* --------------------------------------------------------------------------
+ * Robustness helpers for the rate guards and the LLM rate-arbiter.
+ *
+ * Background (see docs/llm-fallback-analysis/): the dominant field failure is
+ * "PreValue poisoning" — one bad commit becomes PreValue, then every correct
+ * reading is rejected as a rate violation and clamped back to the poison, so
+ * the meter sticks on a wrong value for hours. These helpers (a) stop the
+ * arbiter from committing a wild/echoed value, and (b) let a poisoned PreValue
+ * be re-anchored once enough agreeing-but-rejected readings accumulate.
+ * -------------------------------------------------------------------------- */
+
+// Upper bound on a physically valid reading for this sequence, from its digit
+// count and decimal places. Used to reject overflow garbage.
+static double maxPlausibleReading(const NumberPost* n) {
+    int positions = n->AnzahlDigit + n->AnzahlAnalog;
+    if (positions <= 0) positions = 9;                 // generous fallback
+    double maxRaw = pow(10.0, (double) positions) - 1.0;
+    double scale  = pow(10.0, (double) n->Nachkomma);
+    if (scale < 1e-9) scale = 1.0;
+    return maxRaw / scale;
+}
+
+static bool isPlausibleReading(double v, const NumberPost* n) {
+    if (v < 0) return false;                            // cumulative meters never go negative
+    if (v > maxPlausibleReading(n) + 1e-6) return false;
+    return true;
+}
+
+// The arbiter is a tie-breaker between the live reading and the previous value.
+// A trustworthy answer must be physically plausible AND corroborate one of them
+// (within tol) rather than invent a wholly different magnitude. This is what
+// stops a hallucinated answer (e.g. 1.65 when the meter reads 9725) from
+// poisoning PreValue. Verbatim echo of the prompt is separately prevented by
+// not putting any candidate numbers into the arbiter prompt (buildArbiterPrompt).
+static bool arbiterAnswerAcceptable(double cand, double liveRaw, double preValue,
+                                    const NumberPost* n) {
+    if (!isPlausibleReading(cand, n)) return false;
+    double ref = fabs(liveRaw);
+    if (fabs(preValue) > ref) ref = fabs(preValue);
+    if (ref < 1.0) ref = 1.0;
+    double tol = ref * 0.02;                            // within 2% of raw or pre
+    if (tol < 5.0) tol = 5.0;
+    return (fabs(cand - liveRaw) <= tol) || (fabs(cand - preValue) <= tol);
+}
+
+// Record a reading that a rate guard just clamped away (forced back to PreValue).
+static void recordClampSuspect(NumberPost* n, double clampedAwayValue) {
+    n->consecutiveClampCount++;
+    n->clampHistory.push_back(clampedAwayValue);
+    if (n->clampHistory.size() > 12) n->clampHistory.erase(n->clampHistory.begin());
+}
+
+// If the live reading has been clamped for >= `cycles` consecutive cycles and
+// the most recent `cycles` clamped-away readings agree with EACH OTHER (within
+// tol) and are plausible, then PreValue — not the readings — is the outlier.
+// Returns true and sets *anchor to the cluster median so PreValue can be reset.
+static bool stuckClusterAnchor(NumberPost* n, int cycles, double tol, double* anchor) {
+    if (cycles <= 0 || n->consecutiveClampCount < cycles) return false;
+    if ((int) n->clampHistory.size() < cycles) return false;
+    std::vector<double> recent(n->clampHistory.end() - cycles, n->clampHistory.end());
+    double mn = recent[0], mx = recent[0];
+    for (double x : recent) { if (x < mn) mn = x; if (x > mx) mx = x; }
+    if (mx - mn > tol) return false;
+    std::sort(recent.begin(), recent.end());
+    double med = recent[recent.size() / 2];
+    if (!isPlausibleReading(med, n)) return false;
+    *anchor = med;
+    return true;
+}
+
+// Arbiter call budget: honour [LLMFallback] ArbiterMinIntervalSec so a stuck
+// state cannot trigger an arbiter call every cycle. 0 = unthrottled (legacy).
+static bool arbiterBudgetAllows(const NumberPost* n, time_t now) {
+    int minInterval = LLMFallbackArbiterMinIntervalSec();
+    if (minInterval <= 0) return true;
+    if (n->lastArbiterCall != 0 && difftime(now, n->lastArbiterCall) < minInterval)
+        return false;
+    return true;
+}
 
 std::string ClassFlowPostProcessing::getNumbersName() {
     std::string ret="";
@@ -316,6 +399,7 @@ ClassFlowPostProcessing::ClassFlowPostProcessing(std::vector<ClassFlow*>* lfc, C
     PreValueUse = false;
     PreValueAgeStartup = 30;
     ErrorMessage = false;
+    StuckEscapeCycles = 6;   // ~30 min at a 5-min cadence; 0 disables recovery
     ListFlowControll = NULL;
     FilePreValue = FormatFileName("/sdcard/config/prevalue.ini");
     ListFlowControll = lfc;
@@ -626,6 +710,12 @@ bool ClassFlowPostProcessing::ReadParameter(FILE* pfile, string& aktparamgraph) 
                 PreValueAgeStartup = std::stoi(splitted[1]);
             }
         }
+
+        if ((toUpper(_param) == "STUCKESCAPECYCLES") && (splitted.size() > 1)) {
+            if (isStringNumeric(splitted[1])) {
+                StuckEscapeCycles = std::stoi(splitted[1]);
+            }
+        }
     }
 
     if (PreValueUse) {
@@ -707,6 +797,10 @@ void ClassFlowPostProcessing::InitNUMBERS() {
         _number->hasSuspectReading = false;
         _number->suspectValue = 0;
         _number->suspectTimestamp = 0;
+
+        _number->consecutiveClampCount = 0;
+        _number->clampHistory.clear();
+        _number->lastArbiterCall = 0;
 
         _number->Nachkomma = _number->AnzahlAnalog;
 
@@ -909,18 +1003,20 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                 if (abs(diff) > abs(NUMBERS[j]->MaxRateValue)) wouldBeRateHigh = true;
             }
 
-            if (wouldBeNegRate || wouldBeRateHigh) {
+            if ((wouldBeNegRate || wouldBeRateHigh) && arbiterBudgetAllows(NUMBERS[j], imagetime)) {
                 LogFile.WriteHeapInfo("LLM arbiter (pre-consistency) - before encode");
                 ImageData* arbImg = flowTakeImage->rawImage->writeToMemoryAsJPG(75);
                 if (arbImg && arbImg->size > 0) {
                     double arbValue = 0;
+                    double liveRaw = NUMBERS[j]->Value;
+                    NUMBERS[j]->lastArbiterCall = imagetime;   // budget: count the attempt (incl. timeouts)
                     bool ok = LLMFallbackArbitrateValue(
                         arbImg->data, arbImg->size,
                         NUMBERS[j]->PreValue, NUMBERS[j]->Value,
                         minutesSincePreValue, abs(NUMBERS[j]->MaxRateValue),
                         NUMBERS[j]->Nachkomma, &arbValue,
                         NUMBERS[j]->name + (wouldBeNegRate ? "_arb_pre_neg" : "_arb_pre_high"));
-                    if (ok) {
+                    if (ok && arbiterAnswerAcceptable(arbValue, liveRaw, NUMBERS[j]->PreValue, NUMBERS[j])) {
                         LogFile.WriteToFile(ESP_LOG_WARN, TAG,
                             NUMBERS[j]->name + ": LLM arbiter (pre-consistency) accepted " +
                             RundeOutput(arbValue, NUMBERS[j]->Nachkomma) +
@@ -932,6 +1028,12 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                             RundeOutput(arbValue, NUMBERS[j]->Nachkomma) + " ";
                         NUMBERS[j]->hasSuspectReading = false;
                         earlyArbiterAccepted = true;
+                    }
+                    else if (ok) {
+                        LogFile.WriteToFile(ESP_LOG_WARN, TAG, NUMBERS[j]->name +
+                            ": LLM arbiter (pre-consistency) answer " +
+                            RundeOutput(arbValue, NUMBERS[j]->Nachkomma) +
+                            " rejected (implausible or corroborates neither reading)");
                     }
                 }
                 delete arbImg;
@@ -989,20 +1091,23 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                     // LLM arbiter: if enabled, ask the vision model to read the meter face
                     // directly. A successful parse ends the violation here and overrides
                     // PreValue immediately — no need to wait for the two-witness cycle.
-                    if (LLMFallbackArbiterEnabled() && flowTakeImage && flowTakeImage->rawImage) {
+                    if (LLMFallbackArbiterEnabled() && flowTakeImage && flowTakeImage->rawImage
+                            && arbiterBudgetAllows(NUMBERS[j], imagetime)) {
                         LogFile.WriteHeapInfo("LLM arbiter (neg-rate) - before encode");
                         ImageData* arbImg = flowTakeImage->rawImage->writeToMemoryAsJPG(75);
                         if (arbImg && arbImg->size > 0) {
                             double arbValue = 0;
+                            double liveRaw = NUMBERS[j]->Value;
                             double minutesElapsed = difftime(imagetime, NUMBERS[j]->timeStampLastPreValue) / 60.0;
                             if (minutesElapsed < 0) minutesElapsed = 0;
+                            NUMBERS[j]->lastArbiterCall = imagetime;   // budget: count the attempt
                             bool ok = LLMFallbackArbitrateValue(
                                 arbImg->data, arbImg->size,
                                 NUMBERS[j]->PreValue, NUMBERS[j]->Value,
                                 minutesElapsed, abs(NUMBERS[j]->MaxRateValue),
                                 NUMBERS[j]->Nachkomma, &arbValue,
                                 NUMBERS[j]->name + "_arb_neg");
-                            if (ok) {
+                            if (ok && arbiterAnswerAcceptable(arbValue, liveRaw, NUMBERS[j]->PreValue, NUMBERS[j])) {
                                 LogFile.WriteToFile(ESP_LOG_WARN, TAG,
                                     NUMBERS[j]->name + ": LLM arbiter (neg-rate) accepted " +
                                     RundeOutput(arbValue, NUMBERS[j]->Nachkomma) +
@@ -1047,6 +1152,30 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                             // fall through — let the rest of doFlow promote Value to PreValue
                         }
                         else {
+                            // Self-healing: PreValue may itself be the poisoned outlier.
+                            // Track consecutive clamps; once enough recent rejected
+                            // readings agree with each other, re-anchor PreValue to them
+                            // instead of clamping the (correct) reading forever.
+                            recordClampSuspect(NUMBERS[j], NUMBERS[j]->Value);
+                            double anchor = 0;
+                            double clTol = abs(NUMBERS[j]->MaxRateValue) * StuckEscapeCycles * 1.5;
+                            if (clTol < 0.5) clTol = 0.5;
+                            if (stuckClusterAnchor(NUMBERS[j], StuckEscapeCycles, clTol, &anchor)) {
+                                LogFile.WriteToFile(ESP_LOG_WARN, TAG, NUMBERS[j]->name +
+                                    ": neg-rate persisted " + std::to_string(NUMBERS[j]->consecutiveClampCount) +
+                                    " cycles; re-anchoring suspected-poisoned PreValue " +
+                                    RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + " -> " +
+                                    RundeOutput(anchor, NUMBERS[j]->Nachkomma));
+                                NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText +
+                                    "Stuck recovery: PreValue re-anchored ";
+                                NUMBERS[j]->Value = anchor;
+                                NUMBERS[j]->hasSuspectReading = false;
+                                NUMBERS[j]->consecutiveClampCount = 0;
+                                NUMBERS[j]->clampHistory.clear();
+                                witnessOverrideThisCycle = true;
+                                // fall through — commit path promotes Value to PreValue
+                            }
+                            else {
                             const char* phase = NUMBERS[j]->hasSuspectReading ? "witness restart" : "witness pending";
                             NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText + "Neg. Rate - Read: " + zwvalue + " - Raw: " + NUMBERS[j]->ReturnRawValue + " - Pre: " + RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + " [" + phase + "] ";
                             NUMBERS[j]->suspectValue = NUMBERS[j]->Value;
@@ -1061,6 +1190,7 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                             LogFile.WriteToFile(ESP_LOG_ERROR, TAG, _zw);
                             WriteDataLog(j);
                             continue;
+                            }
                         }
                     }
                 }
@@ -1092,20 +1222,23 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                 if (abs(_ratedifference) > abs(NUMBERS[j]->MaxRateValue)) {
                     // LLM arbiter: same as in the neg-rate branch, but for the
                     // "moved too fast vs. PreValue" failure mode.
-                    if (LLMFallbackArbiterEnabled() && flowTakeImage && flowTakeImage->rawImage) {
+                    if (LLMFallbackArbiterEnabled() && flowTakeImage && flowTakeImage->rawImage
+                            && arbiterBudgetAllows(NUMBERS[j], imagetime)) {
                         LogFile.WriteHeapInfo("LLM arbiter (rate-high) - before encode");
                         ImageData* arbImg = flowTakeImage->rawImage->writeToMemoryAsJPG(75);
                         if (arbImg && arbImg->size > 0) {
                             double arbValue = 0;
+                            double liveRaw = NUMBERS[j]->Value;
                             double minutesElapsed = LastPreValueTimeDifference;  // already in minutes here
                             if (minutesElapsed < 0) minutesElapsed = 0;
+                            NUMBERS[j]->lastArbiterCall = imagetime;   // budget: count the attempt
                             bool ok = LLMFallbackArbitrateValue(
                                 arbImg->data, arbImg->size,
                                 NUMBERS[j]->PreValue, NUMBERS[j]->Value,
                                 minutesElapsed, abs(NUMBERS[j]->MaxRateValue),
                                 NUMBERS[j]->Nachkomma, &arbValue,
                                 NUMBERS[j]->name + "_arb_high");
-                            if (ok) {
+                            if (ok && arbiterAnswerAcceptable(arbValue, liveRaw, NUMBERS[j]->PreValue, NUMBERS[j])) {
                                 LogFile.WriteToFile(ESP_LOG_WARN, TAG,
                                     NUMBERS[j]->name + ": LLM arbiter (rate-too-high) accepted " +
                                     RundeOutput(arbValue, NUMBERS[j]->Nachkomma) +
@@ -1148,6 +1281,28 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                             // fall through — accept the reading
                         }
                         else {
+                            // Self-healing (see neg-rate branch): re-anchor a poisoned
+                            // PreValue once enough rejected readings agree with each other.
+                            recordClampSuspect(NUMBERS[j], NUMBERS[j]->Value);
+                            double anchor = 0;
+                            double clTol = abs(NUMBERS[j]->MaxRateValue) * StuckEscapeCycles * 1.5;
+                            if (clTol < 0.5) clTol = 0.5;
+                            if (stuckClusterAnchor(NUMBERS[j], StuckEscapeCycles, clTol, &anchor)) {
+                                LogFile.WriteToFile(ESP_LOG_WARN, TAG, NUMBERS[j]->name +
+                                    ": rate-too-high persisted " + std::to_string(NUMBERS[j]->consecutiveClampCount) +
+                                    " cycles; re-anchoring suspected-poisoned PreValue " +
+                                    RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + " -> " +
+                                    RundeOutput(anchor, NUMBERS[j]->Nachkomma));
+                                NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText +
+                                    "Stuck recovery: PreValue re-anchored ";
+                                NUMBERS[j]->Value = anchor;
+                                NUMBERS[j]->hasSuspectReading = false;
+                                NUMBERS[j]->consecutiveClampCount = 0;
+                                NUMBERS[j]->clampHistory.clear();
+                                witnessOverrideThisCycle = true;
+                                // fall through — commit path promotes Value to PreValue
+                            }
+                            else {
                             const char* phase = NUMBERS[j]->hasSuspectReading ? "witness restart" : "witness pending";
                             NUMBERS[j]->ErrorMessageText = NUMBERS[j]->ErrorMessageText + "Rate too high - Read: " + RundeOutput(NUMBERS[j]->Value, NUMBERS[j]->Nachkomma) + " - Pre: " + RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma) + " - Rate: " + RundeOutput(_ratedifference, NUMBERS[j]->Nachkomma) + " [" + phase + "] ";
                             NUMBERS[j]->suspectValue = NUMBERS[j]->Value;
@@ -1163,6 +1318,7 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                             LogFile.WriteToFile(ESP_LOG_ERROR, TAG, _zw);
                             WriteDataLog(j);
                             continue;
+                            }
                         }
                     }
                 }
@@ -1180,6 +1336,11 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                 std::to_string(NUMBERS[j]->suspectValue));
             NUMBERS[j]->hasSuspectReading = false;
         }
+
+        // A reading reached commit (clean or re-anchored) — the stuck-recovery
+        // counters reset so the next stuck episode is measured from zero.
+        NUMBERS[j]->consecutiveClampCount = 0;
+        if (!NUMBERS[j]->clampHistory.empty()) NUMBERS[j]->clampHistory.clear();
 
         NUMBERS[j]->ReturnChangeAbsolute = RundeOutput(NUMBERS[j]->Value - NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma);
         NUMBERS[j]->PreValue = NUMBERS[j]->Value;
