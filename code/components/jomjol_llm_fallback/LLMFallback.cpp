@@ -234,16 +234,22 @@ static int parseDigitFromResponse(const char* json, LLMProvider provider)
 }
 
 /**
- * Extract a numeric value from an LLM response. The model is asked to reply
- * with just a number, but in practice may wrap it in prose ("the value is
- * 2173.401") or units. Scan for the first numeric token (sign, digits, dot)
- * and parse it via strtod.
+ * Parse the arbiter's digit-string answer and reconstruct the meter value.
  *
- * Returns true on success, false if no parseable number was found.
+ * The arbiter is sent a clutter-free strip of the `numDigits` wheel crops and
+ * asked to reply with exactly that many digits and NO decimal point. The
+ * firmware owns the decimal placement (at `decimalPlaces` from the right),
+ * which eliminates the model's decimal-misplacement failure mode entirely
+ * (e.g. returning 97768.42 for a true 9776.84). A dropped leading zero — the
+ * other common error — is tolerated by left-padding.
+ *
+ * Returns true and sets *out only when the digit count matches; otherwise the
+ * answer is treated as inconclusive (caller falls back to two-witness).
  */
-static bool parseNumberFromResponse(const char* json, LLMProvider provider, double* out)
+static bool parseDigitsFromResponse(const char* json, LLMProvider provider,
+                                    int numDigits, int decimalPlaces, double* out)
 {
-    if (!json || !out) return false;
+    if (!json || !out || numDigits <= 0) return false;
 
     cJSON* root = cJSON_Parse(json);
     if (!root) {
@@ -268,24 +274,30 @@ static bool parseNumberFromResponse(const char* json, LLMProvider provider, doub
 
     bool ok = false;
     if (content) {
-        std::string s = trimStr(std::string(content));
+        std::string digits;
+        for (const char* p = content; *p; ++p)
+            if (*p >= '0' && *p <= '9') digits += *p;
 
-        // Find the first numeric token (optional sign, digits, optional dot, digits).
-        size_t i = 0;
-        while (i < s.size() && !((s[i] >= '0' && s[i] <= '9') || s[i] == '-' || s[i] == '+')) {
-            ++i;
-        }
-        if (i < s.size()) {
-            char* endptr = nullptr;
-            double v = strtod(s.c_str() + i, &endptr);
-            if (endptr != s.c_str() + i) {
-                *out = v;
-                ok = true;
+        // Tolerate a dropped leading zero (common with these meters).
+        if ((int) digits.size() == numDigits - 1) digits = "0" + digits;
+
+        if ((int) digits.size() == numDigits) {
+            int intLen = numDigits - decimalPlaces;
+            std::string s;
+            if (intLen <= 0) {                       // value < 1: all decimals
+                s = "0.";
+                for (int i = 0; i < -intLen; ++i) s += '0';
+                s += digits;
+            } else {
+                s = digits.substr(0, intLen);
+                if (decimalPlaces > 0) s += "." + digits.substr(intLen);
             }
-        }
-        if (!ok) {
+            *out = strtod(s.c_str(), nullptr);
+            ok = true;
+        } else {
             LogFile.WriteToFile(ESP_LOG_WARN, TAG,
-                "LLM arbiter: non-numeric content: '" + s + "'");
+                "LLM arbiter: expected " + std::to_string(numDigits) +
+                " digits, got '" + std::string(content) + "'");
         }
     } else {
         LogFile.WriteToFile(ESP_LOG_WARN, TAG, "LLM arbiter: response missing content field");
@@ -295,27 +307,22 @@ static bool parseNumberFromResponse(const char* json, LLMProvider provider, doub
     return ok;
 }
 
-/** Build the dynamic arbiter prompt with PreValue/Raw/elapsed/maxRate substituted in. */
-static std::string buildArbiterPrompt(double preValue, double currentRaw,
-                                      double minutesElapsed, double maxRate,
-                                      int decimalPlaces)
+/**
+ * Build the arbiter prompt. The caller sends a horizontal strip of just the
+ * `numDigits` wheel crops (no serial number / barcode / spec text), and we ask
+ * for the digits ONLY — no decimal point, which the firmware places itself.
+ * Leaks no candidate values, so the model can't echo one.
+ */
+static std::string buildArbiterPrompt(int numDigits)
 {
-    // IMPORTANT: leak NO candidate numbers (previous value / CNN reading / rate)
-    // into the prompt. A vision model that cannot fully resolve the dial tends to
-    // *echo* a number it was handed rather than read the image — field transcripts
-    // showed ~35 % of answers were a verbatim copy of the PreValue we supplied,
-    // which silently re-pinned a poisoned reading. Ask it to read the dial cold;
-    // ClassFlowPostProcessing re-validates the answer against the live reading and
-    // PreValue before trusting it.
-    (void) preValue; (void) currentRaw; (void) minutesElapsed; (void) maxRate;
-
     char buf[512];
     int n = snprintf(buf, sizeof(buf),
-        "This image shows the face of a utility meter — a mechanical odometer-style row "
-        "of digits. Read the digits left to right exactly as they appear. Reply with ONLY "
-        "the number, using %d decimal place(s) — no words, no units, no explanation. "
-        "If you genuinely cannot read it, reply with the single uppercase letter N.",
-        decimalPlaces);
+        "This image is a horizontal strip of %d separate meter digit wheels, shown left "
+        "to right. Read each wheel and reply with ONLY those digits as a single run of "
+        "exactly %d characters (0-9) — no spaces, no decimal point, no other text. "
+        "If a wheel sits between two numbers, use the lower one. "
+        "If you truly cannot read it, reply with the single uppercase letter N.",
+        numDigits, numDigits);
     if (n < 0) return std::string();
     return std::string(buf);
 }
@@ -598,22 +605,22 @@ int LLMFallbackQueryDigit(const uint8_t* jpegData, size_t jpegLen,
 bool LLMFallbackArbitrateValue(const uint8_t* jpegData, size_t jpegLen,
                                double preValue, double currentRaw,
                                double minutesElapsed, double maxRate,
-                               int decimalPlaces,
+                               int numDigits, int decimalPlaces,
                                double* outValue,
                                const std::string& label)
 {
-    if (!s_arbiterActive || !jpegData || jpegLen == 0 || !outValue) return false;
+    if (!s_arbiterActive || !jpegData || jpegLen == 0 || !outValue || numDigits <= 0) return false;
 
-    const std::string prompt =
-        buildArbiterPrompt(preValue, currentRaw, minutesElapsed, maxRate, decimalPlaces);
+    const std::string prompt = buildArbiterPrompt(numDigits);
 
     char ctxBuf[256];
     snprintf(ctxBuf, sizeof(ctxBuf),
-        "arbiter pre=%.*f raw=%.*f elapsed=%.1fmin maxRate=%.*f",
+        "arbiter pre=%.*f raw=%.*f elapsed=%.1fmin maxRate=%.*f digits=%d",
         decimalPlaces, preValue,
         decimalPlaces, currentRaw,
         minutesElapsed,
-        decimalPlaces, maxRate);
+        decimalPlaces, maxRate,
+        numDigits);
     std::string context(ctxBuf);
 
     bool   parsed = false;
@@ -625,7 +632,7 @@ bool LLMFallbackArbitrateValue(const uint8_t* jpegData, size_t jpegLen,
     llmDoRequest(jpegData, jpegLen, effectiveModel, prompt, label, context,
         [&](const char* buf, int /*len*/, esp_err_t err, int httpStatus) -> std::string {
             if (err == ESP_OK && httpStatus == 200) {
-                parsed = parseNumberFromResponse(buf, s_cfg.provider, &parsedValue);
+                parsed = parseDigitsFromResponse(buf, s_cfg.provider, numDigits, decimalPlaces, &parsedValue);
             }
             if (parsed) {
                 char rb[32];

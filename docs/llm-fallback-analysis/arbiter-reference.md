@@ -8,7 +8,9 @@
 
 ## 1. What the arbiter is
 
-When post-processing detects that the new reading violates the rate guards (negative rate, or change faster than `MaxRateValue`), and `ArbitrateRateViolations = true`, the firmware sends the **full meter image** to a vision LLM and asks it to read the dial. The answer is then **re-validated** before it can be trusted. It is a *tie-breaker*, never an oracle.
+When post-processing detects that the new reading violates the rate guards (negative rate, or change faster than `MaxRateValue`), and `ArbitrateRateViolations = true`, the firmware sends a **clutter-free strip of just the digit-wheel crops** (the same aligned images the CNN saw — no serial number, barcode, or Qmax/Qmin text) to a vision LLM, asks it for the **digits only (no decimal point)**, and the firmware **places the decimal itself**. The answer is then **re-validated** before it can be trusted. It is a *tie-breaker*, never an oracle.
+
+> **Option B (digit-strip) — implemented.** Earlier the arbiter was sent the full meter face and asked for a number; the model read the right digits but misplaced the decimal 10× (`97768.42` for `9776.84`), so every answer was correctly rejected but useless. Now the firmware stitches the wheel crops (`buildSequenceDigitStrip` in `ClassFlowPostProcessing.cpp`), asks for `N` digits, and reconstructs the value at `Nachkomma` (`parseDigitsFromResponse` in `LLMFallback.cpp`). The decimal-misplacement failure mode is gone by construction.
 
 It runs at three points in `code/components/jomjol_flowcontroll/ClassFlowPostProcessing.cpp::doFlow`:
 1. **pre-consistency** (before `checkDigitConsistency`) — when the raw value would violate.
@@ -70,7 +72,9 @@ So "workstation off" is handled by LiteLLM's fallback; "whole proxy/PC off" is h
 - A poisoned `PreValue` (`9786.41`) inherited from `prevalue.ini` across the reboot cleared on the next cycle (startup/age path).
 
 ### Known limitations / open work
-- **Arbiter currently contributes 0 accepted answers** — the full-frame image (serial number, Qmax/Qmin text, glare) makes the model misplace the decimal. It's *safe* (rejected) but not yet *useful*. Fix = **ROI crop** (send only the digit wheels) + reconstruct the value from the digit string using `Nachkomma`. See §6.
+- **Decimal misplacement — FIXED** by Option B (digit-strip + firmware-owned decimal). The arbiter can now return a value that corroborates the reading and gets accepted, so it actually corrects drifts (e.g. the +1 over-read caused by `checkDigitConsistency` aligning to a poisoned PreValue).
+- **Extended-resolution caveat:** reconstruction places the decimal `Nachkomma` from the right (`intLen = numDigits − decimalPlaces`). If `ExtendedResolution` is on, `Nachkomma` is +1 vs the physical wheel split, so the reconstructed value can be 10× off → it'll simply be *rejected* by `arbiterAnswerAcceptable` (safe, not poisoning). This meter runs with `ExtendedResolution = false`, so it's unaffected.
+- **`checkDigitConsistency` can mask a poison** — when it rewrites a correct digit *up* to match a wrong PreValue, the reading commits "no error" and never trips a guard, so the self-healing (which only fires on clamped violations) never engages. Mitigation today: disable `[PostProcessing] CheckDigitIncreaseConsistency` (lets the raw flow through → neg-rate → self-healing). Open work: a divergence-based re-anchor that fires when committed value persistently differs from a stable raw cluster even without a rate violation.
 - **Fires every cycle on sub-threshold neg-rate** — throttle with `ArbiterMinIntervalSec`; longer-term, run `checkDigitConsistency` *before* the arbiter (deterministic-first, doc 04 §4.1) so transient raw noise never reaches the LLM.
 
 ## 6. How to change it (recipes)
@@ -82,8 +86,9 @@ So "workstation off" is handled by LiteLLM's fallback; "whole proxy/PC off" is h
 | **Change which model arbitrates** | `[LLMFallback] ArbiterModel` (must be vision-capable). Routing/fallback is in LiteLLM `config.yaml`. |
 | **Loosen/tighten what answers are accepted** | `arbiterAnswerAcceptable` in `ClassFlowPostProcessing.cpp` — the `0.02` (2%) tolerance and the plausibility bound (`maxPlausibleReading`). |
 | **Change the prompt** | `buildArbiterPrompt` in `LLMFallback.cpp`. Keep it number-free (no candidate values) to avoid echo. |
-| **Crop the image to the digits (the next big win)** | At each arbiter call site in `doFlow`, replace `flowTakeImage->rawImage->writeToMemoryAsJPG(75)` with a crop to the sequence's ROI bounding box (mirror the per-digit crop in `ClassFlowCNNGeneral.cpp`'s deferred pass), then have the parser place the decimal at `Nachkomma`. |
-| **Add/parse a digit-string answer** | `parseNumberFromResponse` in `LLMFallback.cpp` — if the model returns bare digits with no point, insert the decimal `Nachkomma` places from the right. |
+| **Change how the digit strip is built** | `buildSequenceDigitStrip` in `ClassFlowPostProcessing.cpp` (gap, background colour, vertical centring, upscale threshold). It stitches `digit_roi` then `analog_roi` crops left-to-right. |
+| **Change digit parsing / decimal reconstruction** | `parseDigitsFromResponse` in `LLMFallback.cpp` — digit count tolerance (currently exact, with a dropped-leading-zero pad) and where the decimal is inserted (`numDigits − decimalPlaces`). |
+| **Change the arbiter prompt** | `buildArbiterPrompt(numDigits)` in `LLMFallback.cpp` — asks for N digits, no decimal point, no candidate numbers. |
 | **Make a stuck PreValue self-heal faster/slower** | `[PostProcessing] StuckEscapeCycles`. |
 | **Adjust call sites / ordering** | The three blocks in `doFlow` (pre-consistency, neg-rate, rate-high). To stop over-firing, gate the pre-consistency block behind `checkDigitConsistency` first. |
 

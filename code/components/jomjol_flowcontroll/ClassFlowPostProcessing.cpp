@@ -99,6 +99,54 @@ static bool arbiterBudgetAllows(const NumberPost* n, time_t now) {
     return true;
 }
 
+// Build a clutter-free horizontal strip of just this sequence's digit/analog ROI
+// crops — the same aligned images the CNN saw — so the arbiter LLM reads ONLY the
+// wheels (no serial number, barcode, or Qmax/Qmin text) and the firmware controls
+// the decimal point. Caller deletes the returned image; *outDigits = wheel count.
+// Returns nullptr if no ROI crops are available.
+static CImageBasis* buildSequenceDigitStrip(NumberPost* n, int* outDigits) {
+    *outDigits = 0;
+    std::vector<CImageBasis*> rois;
+    if (n->digit_roi)
+        for (auto* r : n->digit_roi->ROI)  if (r && r->image && r->image->rgb_image) rois.push_back(r->image);
+    if (n->analog_roi)
+        for (auto* r : n->analog_roi->ROI) if (r && r->image && r->image->rgb_image) rois.push_back(r->image);
+    if (rois.empty()) return nullptr;
+
+    const int gap = 2;
+    int ch = rois[0]->channels;
+    int stripH = 0, stripW = 0;
+    for (auto* im : rois) { if (im->height > stripH) stripH = im->height; stripW += im->width + gap; }
+    stripW -= gap;
+    if (stripW <= 0 || stripH <= 0) return nullptr;
+
+    CImageBasis* strip = new CImageBasis("arb_strip", stripW, stripH, ch);
+    if (!strip->rgb_image) { delete strip; return nullptr; }
+
+    for (int y = 0; y < stripH; ++y)            // black background (wheels are light-on-dark)
+        for (int x = 0; x < stripW; ++x) strip->setPixelColor(x, y, 0, 0, 0);
+
+    int xoff = 0;
+    for (auto* im : rois) {
+        int ytop = (stripH - im->height) / 2;   // vertical centre
+        for (int y = 0; y < im->height; ++y)
+            for (int x = 0; x < im->width; ++x) {
+                int r = im->GetPixelColor(x, y, 0);
+                int g = (ch > 1) ? im->GetPixelColor(x, y, 1) : r;
+                int b = (ch > 2) ? im->GetPixelColor(x, y, 2) : r;
+                strip->setPixelColor(xoff + x, ytop + y, r, g, b);
+            }
+        xoff += im->width + gap;
+    }
+
+    if (stripH < 48) {                          // small crops read poorly — upscale
+        int s = (48 + stripH - 1) / stripH;
+        strip->Resize(stripW * s, stripH * s);
+    }
+    *outDigits = (int) rois.size();
+    return strip;
+}
+
 std::string ClassFlowPostProcessing::getNumbersName() {
     std::string ret="";
 
@@ -1005,7 +1053,10 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
 
             if ((wouldBeNegRate || wouldBeRateHigh) && arbiterBudgetAllows(NUMBERS[j], imagetime)) {
                 LogFile.WriteHeapInfo("LLM arbiter (pre-consistency) - before encode");
-                ImageData* arbImg = flowTakeImage->rawImage->writeToMemoryAsJPG(75);
+                int arbDigits = 0;
+                CImageBasis* arbStrip = buildSequenceDigitStrip(NUMBERS[j], &arbDigits);
+                ImageData* arbImg = (arbStrip && arbDigits > 0) ? arbStrip->writeToMemoryAsJPG(85) : nullptr;
+                delete arbStrip;   // JPEG bytes are copied into arbImg; strip no longer needed
                 if (arbImg && arbImg->size > 0) {
                     double arbValue = 0;
                     double liveRaw = NUMBERS[j]->Value;
@@ -1014,7 +1065,7 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                         arbImg->data, arbImg->size,
                         NUMBERS[j]->PreValue, NUMBERS[j]->Value,
                         minutesSincePreValue, abs(NUMBERS[j]->MaxRateValue),
-                        NUMBERS[j]->Nachkomma, &arbValue,
+                        arbDigits, NUMBERS[j]->Nachkomma, &arbValue,
                         NUMBERS[j]->name + (wouldBeNegRate ? "_arb_pre_neg" : "_arb_pre_high"));
                     if (ok && arbiterAnswerAcceptable(arbValue, liveRaw, NUMBERS[j]->PreValue, NUMBERS[j])) {
                         LogFile.WriteToFile(ESP_LOG_WARN, TAG,
@@ -1094,7 +1145,10 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                     if (LLMFallbackArbiterEnabled() && flowTakeImage && flowTakeImage->rawImage
                             && arbiterBudgetAllows(NUMBERS[j], imagetime)) {
                         LogFile.WriteHeapInfo("LLM arbiter (neg-rate) - before encode");
-                        ImageData* arbImg = flowTakeImage->rawImage->writeToMemoryAsJPG(75);
+                        int arbDigits = 0;
+                        CImageBasis* arbStrip = buildSequenceDigitStrip(NUMBERS[j], &arbDigits);
+                        ImageData* arbImg = (arbStrip && arbDigits > 0) ? arbStrip->writeToMemoryAsJPG(85) : nullptr;
+                        delete arbStrip;
                         if (arbImg && arbImg->size > 0) {
                             double arbValue = 0;
                             double liveRaw = NUMBERS[j]->Value;
@@ -1105,7 +1159,7 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                                 arbImg->data, arbImg->size,
                                 NUMBERS[j]->PreValue, NUMBERS[j]->Value,
                                 minutesElapsed, abs(NUMBERS[j]->MaxRateValue),
-                                NUMBERS[j]->Nachkomma, &arbValue,
+                                arbDigits, NUMBERS[j]->Nachkomma, &arbValue,
                                 NUMBERS[j]->name + "_arb_neg");
                             if (ok && arbiterAnswerAcceptable(arbValue, liveRaw, NUMBERS[j]->PreValue, NUMBERS[j])) {
                                 LogFile.WriteToFile(ESP_LOG_WARN, TAG,
@@ -1225,7 +1279,10 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                     if (LLMFallbackArbiterEnabled() && flowTakeImage && flowTakeImage->rawImage
                             && arbiterBudgetAllows(NUMBERS[j], imagetime)) {
                         LogFile.WriteHeapInfo("LLM arbiter (rate-high) - before encode");
-                        ImageData* arbImg = flowTakeImage->rawImage->writeToMemoryAsJPG(75);
+                        int arbDigits = 0;
+                        CImageBasis* arbStrip = buildSequenceDigitStrip(NUMBERS[j], &arbDigits);
+                        ImageData* arbImg = (arbStrip && arbDigits > 0) ? arbStrip->writeToMemoryAsJPG(85) : nullptr;
+                        delete arbStrip;
                         if (arbImg && arbImg->size > 0) {
                             double arbValue = 0;
                             double liveRaw = NUMBERS[j]->Value;
@@ -1236,7 +1293,7 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                                 arbImg->data, arbImg->size,
                                 NUMBERS[j]->PreValue, NUMBERS[j]->Value,
                                 minutesElapsed, abs(NUMBERS[j]->MaxRateValue),
-                                NUMBERS[j]->Nachkomma, &arbValue,
+                                arbDigits, NUMBERS[j]->Nachkomma, &arbValue,
                                 NUMBERS[j]->name + "_arb_high");
                             if (ok && arbiterAnswerAcceptable(arbValue, liveRaw, NUMBERS[j]->PreValue, NUMBERS[j])) {
                                 LogFile.WriteToFile(ESP_LOG_WARN, TAG,
