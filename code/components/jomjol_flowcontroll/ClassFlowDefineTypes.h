@@ -4,6 +4,7 @@
 #define CLASSFLOWDEFINETYPES_H
 
 #include "ClassFlowImage.h"
+#include "PublishGate.h"
 
 /**
  * Properties of one ROI
@@ -58,6 +59,9 @@ struct NumberPost {
     bool hasSuspectReading;
     double suspectValue;
     time_t suspectTimestamp;
+    // Publish gate state (volatile; seeded from prevalue.ini at startup). Decides
+    // only what is published, see PublishGate.h and [PostProcessing] PublishGate.
+    PublishGate publishGate;
     string timeStamp;           // localTimeStr; timestamp of last valid reading formatted as local time
     double FlowRateAct;         // currentRate; ΔValue/min; since usage is not limited to water meters, the physical unit is not known.
     double PreValue;            // lastValidValue; most recent value that could be read w/o any errors
