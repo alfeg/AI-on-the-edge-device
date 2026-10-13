@@ -264,6 +264,12 @@ bool ClassFlowPostProcessing::SetPreValue(double _newvalue, string _numbers, boo
                 localtime(&(NUMBERS[j]->timeStampLastPreValue));
             }
 
+            // A manually set PreValue is an explicit correction: the publish gate
+            // follows it (this is the only way the published value may go down).
+            time_t _seedTime;
+            time(&_seedTime);
+            NUMBERS[j]->publishGate.seed(NUMBERS[j]->PreValue, _seedTime);
+
             //ESP_LOGD(TAG, "Found %d! - set to %.8f", j,  NUMBERS[j]->PreValue);
             
             UpdatePreValueINI = true;   // Only update prevalue file if a new value is set
@@ -276,6 +282,16 @@ bool ClassFlowPostProcessing::SetPreValue(double _newvalue, string _numbers, boo
     
     LogFile.WriteToFile(ESP_LOG_WARN, TAG, "SetPreValue: Numbersname not found or not valid");
     return false;   // No new value was set (e.g. wrong numbersname, no numbers at all)
+}
+
+// Parse a PreValue number without std::stod (aborts on bad input with -fno-exceptions)
+static bool preValueToDouble(const std::string& _s, double* _out) {
+    if (_s.empty()) return false;
+    char* end = nullptr;
+    double v = strtod(_s.c_str(), &end);
+    if ((end == _s.c_str()) || (*end != '\0') || !std::isfinite(v)) return false;
+    *_out = v;
+    return true;
 }
 
 bool ClassFlowPostProcessing::LoadPreValue(void) {
@@ -301,6 +317,7 @@ bool ClassFlowPostProcessing::LoadPreValue(void) {
     zwtime = trim(std::string(zw));
 	
     if (zwtime.length() == 0) {
+        fclose(pFile);
         return false;
     }
 
@@ -311,18 +328,25 @@ bool ClassFlowPostProcessing::LoadPreValue(void) {
         while ((splitted.size() > 1) && !_done) {
             name = trim(splitted[0]);
             zwtime = trim(splitted[1]);
-            zwvalue = trim(splitted[2]);
+            zwvalue = (splitted.size() > 2) ? trim(splitted[2]) : "";
 
-            for (int j = 0; j < NUMBERS.size(); ++j) {
+            double _preValue = 0;
+            int yy = 0, month = 0, dd = 0, hh = 0, mm = 0, ss = 0;
+            bool _lineOkay = preValueToDouble(zwvalue, &_preValue) &&
+                    (sscanf(zwtime.c_str(), PREVALUE_TIME_FORMAT_INPUT, &yy, &month, &dd, &hh, &mm, &ss) == 6);
+
+            if (!_lineOkay) {
+                LogFile.WriteToFile(ESP_LOG_WARN, TAG, "LoadPreValue: Skipping malformed line for '" + name + "' in " + FilePreValue);
+            }
+
+            for (int j = 0; _lineOkay && (j < NUMBERS.size()); ++j) {
                 if (NUMBERS[j]->name == name) {
-                    NUMBERS[j]->PreValue = stod(zwvalue.c_str());
+                    NUMBERS[j]->PreValue = _preValue;
                     NUMBERS[j]->ReturnPreValue = RundeOutput(NUMBERS[j]->PreValue, NUMBERS[j]->Nachkomma + 1);      // To be on the safe side, 1 digit more, as Exgtended Resolution may be on (will only be set during the first run).
 
                     time_t tStart;
-                    int yy, month, dd, hh, mm, ss;
                     struct tm whenStart;
 
-                    sscanf(zwtime.c_str(), PREVALUE_TIME_FORMAT_INPUT, &yy, &month, &dd, &hh, &mm, &ss);
                     whenStart.tm_year = yy - 1900;
                     whenStart.tm_mon = month - 1;
                     whenStart.tm_mday = dd;
@@ -332,6 +356,10 @@ bool ClassFlowPostProcessing::LoadPreValue(void) {
                     whenStart.tm_isdst = -1;
 
                     NUMBERS[j]->timeStampLastPreValue = mktime(&whenStart);
+
+                    // Seed the publish gate regardless of PreValueAgeStartup: the stored
+                    // value is the last committed reading, so a reboot never publishes below it.
+                    NUMBERS[j]->publishGate.seed(NUMBERS[j]->PreValue, NUMBERS[j]->timeStampLastPreValue);
 
                     time(&tStart);
                     localtime(&tStart);
@@ -353,12 +381,6 @@ bool ClassFlowPostProcessing::LoadPreValue(void) {
             else {
                 ESP_LOGD(TAG, "Read line Prevalue.ini: %s", zw);
                 splitted = HelperZerlegeZeile(trim(std::string(zw)), "\t");
-		    
-                if (splitted.size() > 1) {
-                    name = trim(splitted[0]);
-                    zwtime = trim(splitted[1]);
-                    zwvalue = trim(splitted[2]);
-                }
             }
         }
         fclose(pFile);
@@ -369,7 +391,11 @@ bool ClassFlowPostProcessing::LoadPreValue(void) {
         fclose(pFile);
         ESP_LOGD(TAG, "%s", zw);
         zwvalue = trim(std::string(zw));
-        NUMBERS[0]->PreValue = stod(zwvalue.c_str());
+
+        if (NUMBERS.empty() || !preValueToDouble(zwvalue, &NUMBERS[0]->PreValue)) {
+            LogFile.WriteToFile(ESP_LOG_WARN, TAG, "LoadPreValue: Malformed value in " + FilePreValue);
+            return false;
+        }
 
         time_t tStart;
         int yy, month, dd, hh, mm, ss;
@@ -387,6 +413,7 @@ bool ClassFlowPostProcessing::LoadPreValue(void) {
         ESP_LOGD(TAG, "TIME: %d, %d, %d, %d, %d, %d", whenStart.tm_year, whenStart.tm_mon, whenStart.tm_wday, whenStart.tm_hour, whenStart.tm_min, whenStart.tm_sec);
 
         NUMBERS[0]->timeStampLastPreValue = mktime(&whenStart);
+        NUMBERS[0]->publishGate.seed(NUMBERS[0]->PreValue, NUMBERS[0]->timeStampLastPreValue);
 
         time(&tStart);
         localtime(&tStart);
@@ -422,6 +449,10 @@ void ClassFlowPostProcessing::SavePreValue() {
 
     pFile = fopen(FilePreValue.c_str(), "w");
 
+    if (pFile == NULL) {
+        LogFile.WriteToFile(ESP_LOG_ERROR, TAG, "SavePreValue: Failed to open " + FilePreValue);
+    }
+
     for (int j = 0; j < NUMBERS.size(); ++j) {
         char buffer[80];
         struct tm* timeinfo = localtime(&NUMBERS[j]->timeStampLastPreValue);
@@ -440,7 +471,9 @@ void ClassFlowPostProcessing::SavePreValue() {
 
     UpdatePreValueINI = false;
 
-    fclose(pFile);
+    if (pFile) {
+        fclose(pFile);
+    }
 }
 
 ClassFlowPostProcessing::ClassFlowPostProcessing(std::vector<ClassFlow*>* lfc, ClassFlowCNNGeneral *_analog, ClassFlowCNNGeneral *_digit) {
@@ -764,6 +797,48 @@ bool ClassFlowPostProcessing::ReadParameter(FILE* pfile, string& aktparamgraph) 
                 StuckEscapeCycles = std::stoi(splitted[1]);
             }
         }
+
+        if ((toUpper(_param) == "PUBLISHGATE") && (splitted.size() > 1)) {
+            PublishGateCfg.enabled = alphanumericToBoolean(splitted[1]);
+        }
+
+        if ((toUpper(_param) == "PUBLISHGATEMAXRATE") && (splitted.size() > 1)) {
+            if (isStringNumeric(splitted[1])) {
+                PublishGateCfg.maxRatePerMin = std::stod(splitted[1]);
+            }
+        }
+
+        if ((toUpper(_param) == "PUBLISHGATESLACK") && (splitted.size() > 1)) {
+            if (isStringNumeric(splitted[1])) {
+                PublishGateCfg.slack = std::stod(splitted[1]);
+            }
+        }
+
+        if ((toUpper(_param) == "PUBLISHGATEDEADBAND") && (splitted.size() > 1)) {
+            if (isStringNumeric(splitted[1])) {
+                PublishGateCfg.deadband = std::stod(splitted[1]);
+            }
+        }
+
+        if ((toUpper(_param) == "PUBLISHGATEESCAPE") && (splitted.size() > 1)) {
+            if (isStringNumeric(splitted[1]) && (std::stoi(splitted[1]) >= 1)) {
+                PublishGateCfg.escape = std::stoi(splitted[1]);
+            }
+        }
+
+        if ((toUpper(_param) == "PUBLISHGATEESCAPEDOWN") && (splitted.size() > 1)) {
+            if (isStringNumeric(splitted[1]) && (std::stoi(splitted[1]) >= 1)) {
+                PublishGateCfg.escapeDown = std::stoi(splitted[1]);
+            }
+        }
+    }
+
+    if (PublishGateCfg.enabled) {
+        LogFile.WriteToFile(ESP_LOG_INFO, TAG, "Publish gate enabled: MaxRate=" + std::to_string(PublishGateCfg.maxRatePerMin) +
+                            "/min, Slack=" + std::to_string(PublishGateCfg.slack) +
+                            ", Deadband=" + std::to_string(PublishGateCfg.deadband) +
+                            ", Escape=" + std::to_string(PublishGateCfg.escape) +
+                            ", EscapeDown=" + std::to_string(PublishGateCfg.escapeDown));
     }
 
     if (PreValueUse) {
@@ -998,6 +1073,7 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                 NUMBERS[j]->ReturnValue = "";
                 NUMBERS[j]->timeStampLastValue = imagetime;
                 WriteDataLog(j);
+                applyPublishGate(j, imagetime);
                 continue; // there is no number because there is still an N.
             }
         }
@@ -1243,6 +1319,7 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                             string _zw = NUMBERS[j]->name + ": Raw: " + NUMBERS[j]->ReturnRawValue + ", Value: " + NUMBERS[j]->ReturnValue + ", Status: " + NUMBERS[j]->ErrorMessageText;
                             LogFile.WriteToFile(ESP_LOG_ERROR, TAG, _zw);
                             WriteDataLog(j);
+                            applyPublishGate(j, imagetime);
                             continue;
                             }
                         }
@@ -1374,6 +1451,7 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
                             string _zw = NUMBERS[j]->name + ": Raw: " + NUMBERS[j]->ReturnRawValue + ", Value: " + NUMBERS[j]->ReturnValue + ", Status: " + NUMBERS[j]->ErrorMessageText;
                             LogFile.WriteToFile(ESP_LOG_ERROR, TAG, _zw);
                             WriteDataLog(j);
+                            applyPublishGate(j, imagetime);
                             continue;
                             }
                         }
@@ -1415,10 +1493,49 @@ bool ClassFlowPostProcessing::doFlow(string zwtime) {
         string _zw = NUMBERS[j]->name + ": Raw: " + NUMBERS[j]->ReturnRawValue + ", Value: " + NUMBERS[j]->ReturnValue + ", Status: " + NUMBERS[j]->ErrorMessageText;
         LogFile.WriteToFile(ESP_LOG_INFO, TAG, _zw);
         WriteDataLog(j);
+        applyPublishGate(j, imagetime);
     }
 
     SavePreValue();
     return true;
+}
+
+// Final publish filter. Runs after WriteDataLog on every exit path of the doFlow
+// loop, so the data log keeps the guard's result; only ReturnValue (what MQTT /
+// InfluxDB / Webhook / REST publish) is replaced. Input is this cycle's raw reading.
+void ClassFlowPostProcessing::applyPublishGate(int _index, time_t _imagetime) {
+    if (!PublishGateCfg.enabled) {
+        return;
+    }
+
+    NumberPost* n = NUMBERS[_index];
+    double raw = 0;
+    bool rawValid = preValueToDouble(n->ReturnRawValue, &raw);
+
+    PublishGate::Result r = n->publishGate.step(PublishGateCfg, rawValid, raw, _imagetime);
+
+    if (r.action == PublishGate::ReAnchoredUp || r.action == PublishGate::ReAnchoredDown) {
+        LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, n->name + ": publish gate re-anchored " +
+                            std::string(r.action == PublishGate::ReAnchoredUp ? "up" : "down") + " to " +
+                            RundeOutput(n->publishGate.getAnchor(), n->Nachkomma));
+    }
+
+    if (!r.publish) {
+        std::string reason;
+        if (r.decreaseSuppressed) {
+            reason = "below last published " + RundeOutput(n->publishGate.getLastPublished(), n->Nachkomma);
+        }
+        else if (r.action == PublishGate::NoReading) {
+            reason = "no numeric raw reading";
+        }
+        else {
+            reason = "outside window of anchor " + RundeOutput(n->publishGate.getAnchor(), n->Nachkomma) +
+                     " (pending " + std::to_string(n->publishGate.pendingCount()) + ")";
+        }
+        LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, n->name + ": publish gate held raw '" + n->ReturnRawValue + "': " + reason);
+    }
+
+    n->ReturnValue = r.publish ? RundeOutput(r.value, n->Nachkomma) : "";
 }
 
 void ClassFlowPostProcessing::WriteDataLog(int _index) {

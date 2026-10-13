@@ -24,6 +24,10 @@ protected:
     // (but rejected) readings is allowed to re-anchor a poisoned PreValue.
     // 0 disables the recovery (legacy behaviour).
     int StuckEscapeCycles;
+
+    // Publish gate ([PostProcessing] PublishGate*): final filter on what is
+    // published. Disabled by default; when disabled nothing changes.
+    PublishGateConfig PublishGateCfg;
 	
     ClassFlowCNNGeneral* flowAnalog;
     ClassFlowCNNGeneral* flowDigit;    
@@ -51,6 +55,7 @@ protected:
     void handlecheckDigitIncreaseConsistency(std::string _decsep, std::string _value);
 
     void WriteDataLog(int _index);
+    void applyPublishGate(int _index, time_t _imagetime);
 
 public:
     bool PreValueUse;

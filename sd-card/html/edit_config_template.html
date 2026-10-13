@@ -889,6 +889,76 @@
             <td>$TOOLTIP_PostProcessing_StuckEscapeCycles</td>
         </tr>
 
+        <tr class="expert" unused_id="PostProcessing_PublishGate_ex">
+            <td class="indent1">
+                <label><class id="PostProcessing_PublishGate_text" style="color:black;">Publish Gate</class></label>
+            </td>
+            <td>
+                <select id="PostProcessing_PublishGate_value1">
+                    <option value="true">enabled (true)</option>
+                    <option value="false" selected>disabled (false)</option>
+                </select>
+            </td>
+            <td>$TOOLTIP_PostProcessing_PublishGate</td>
+        </tr>
+
+        <tr class="expert" unused_id="PostProcessing_PublishGateMaxRate_ex">
+            <td class="indent1">
+                <input type="checkbox" id="PostProcessing_PublishGateMaxRate_enabled" value="1" onclick='InvertEnableItem("PostProcessing", "PublishGateMaxRate")' unchecked>
+                <label for=PostProcessing_PublishGateMaxRate_enabled><class id="PostProcessing_PublishGateMaxRate_text" style="color:black;">Publish Gate Max Rate</class></label>
+            </td>
+            <td>
+                <input required type="number" id="PostProcessing_PublishGateMaxRate_value1" size="13" min="0" step="any">Units/minute
+            </td>
+            <td>$TOOLTIP_PostProcessing_PublishGateMaxRate</td>
+        </tr>
+
+        <tr class="expert" unused_id="PostProcessing_PublishGateSlack_ex">
+            <td class="indent1">
+                <input type="checkbox" id="PostProcessing_PublishGateSlack_enabled" value="1" onclick='InvertEnableItem("PostProcessing", "PublishGateSlack")' unchecked>
+                <label for=PostProcessing_PublishGateSlack_enabled><class id="PostProcessing_PublishGateSlack_text" style="color:black;">Publish Gate Slack</class></label>
+            </td>
+            <td>
+                <input required type="number" id="PostProcessing_PublishGateSlack_value1" size="13" min="0" step="any">Units
+            </td>
+            <td>$TOOLTIP_PostProcessing_PublishGateSlack</td>
+        </tr>
+
+        <tr class="expert" unused_id="PostProcessing_PublishGateDeadband_ex">
+            <td class="indent1">
+                <input type="checkbox" id="PostProcessing_PublishGateDeadband_enabled" value="1" onclick='InvertEnableItem("PostProcessing", "PublishGateDeadband")' unchecked>
+                <label for=PostProcessing_PublishGateDeadband_enabled><class id="PostProcessing_PublishGateDeadband_text" style="color:black;">Publish Gate Deadband</class></label>
+            </td>
+            <td>
+                <input required type="number" id="PostProcessing_PublishGateDeadband_value1" size="13" min="0" step="any">Units
+            </td>
+            <td>$TOOLTIP_PostProcessing_PublishGateDeadband</td>
+        </tr>
+
+        <tr class="expert" unused_id="PostProcessing_PublishGateEscape_ex">
+            <td class="indent1">
+                <input type="checkbox" id="PostProcessing_PublishGateEscape_enabled" value="1" onclick='InvertEnableItem("PostProcessing", "PublishGateEscape")' unchecked>
+                <label for=PostProcessing_PublishGateEscape_enabled><class id="PostProcessing_PublishGateEscape_text" style="color:black;">Publish Gate Escape</class></label>
+            </td>
+            <td>
+                <input required type="number" id="PostProcessing_PublishGateEscape_value1" size="13" min="1" step="1"
+                    oninput="(!validity.rangeUnderflow||(value=1)) && (!validity.stepMismatch||(value=parseInt(this.value)));">cycles
+            </td>
+            <td>$TOOLTIP_PostProcessing_PublishGateEscape</td>
+        </tr>
+
+        <tr class="expert" unused_id="PostProcessing_PublishGateEscapeDown_ex">
+            <td class="indent1">
+                <input type="checkbox" id="PostProcessing_PublishGateEscapeDown_enabled" value="1" onclick='InvertEnableItem("PostProcessing", "PublishGateEscapeDown")' unchecked>
+                <label for=PostProcessing_PublishGateEscapeDown_enabled><class id="PostProcessing_PublishGateEscapeDown_text" style="color:black;">Publish Gate Escape Down</class></label>
+            </td>
+            <td>
+                <input required type="number" id="PostProcessing_PublishGateEscapeDown_value1" size="13" min="1" step="1"
+                    oninput="(!validity.rangeUnderflow||(value=1)) && (!validity.stepMismatch||(value=parseInt(this.value)));">cycles
+            </td>
+            <td>$TOOLTIP_PostProcessing_PublishGateEscapeDown</td>
+        </tr>
+
         <tr class="expert" unused_id="ex12">
             <td class="indent1">
                 <label><class id="PostProcessing_ErrorMessage_text" style="color:black;">Skip Messages on Error</class></label>
@@ -2545,6 +2615,12 @@ function UpdateInput() {
     WriteParameter(param, category, "PostProcessing", "PreValueUse", false);		
     WriteParameter(param, category, "PostProcessing", "PreValueAgeStartup", true);
     WriteParameter(param, category, "PostProcessing", "StuckEscapeCycles", true);
+    WriteParameter(param, category, "PostProcessing", "PublishGate", false);
+    WriteParameter(param, category, "PostProcessing", "PublishGateMaxRate", true);
+    WriteParameter(param, category, "PostProcessing", "PublishGateSlack", true);
+    WriteParameter(param, category, "PostProcessing", "PublishGateDeadband", true);
+    WriteParameter(param, category, "PostProcessing", "PublishGateEscape", true);
+    WriteParameter(param, category, "PostProcessing", "PublishGateEscapeDown", true);
     WriteParameter(param, category, "PostProcessing", "ErrorMessage", false);
     // WriteParameter(param, category, "PostProcessing", "CheckDigitIncreaseConsistency", false);
 
@@ -2729,6 +2805,12 @@ function ReadParameterAll() {
     ReadParameter(param, "PostProcessing", "PreValueUse", false);
     ReadParameter(param, "PostProcessing", "PreValueAgeStartup", true);
     ReadParameter(param, "PostProcessing", "StuckEscapeCycles", true);
+    ReadParameter(param, "PostProcessing", "PublishGate", false);
+    ReadParameter(param, "PostProcessing", "PublishGateMaxRate", true);
+    ReadParameter(param, "PostProcessing", "PublishGateSlack", true);
+    ReadParameter(param, "PostProcessing", "PublishGateDeadband", true);
+    ReadParameter(param, "PostProcessing", "PublishGateEscape", true);
+    ReadParameter(param, "PostProcessing", "PublishGateEscapeDown", true);
     ReadParameter(param, "PostProcessing", "ErrorMessage", false);
     // ReadParameter(param, "PostProcessing", "CheckDigitIncreaseConsistency", false);	
 

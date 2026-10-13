@@ -4,6 +4,7 @@
 #define CLASSFLOWDEFINETYPES_H
 
 #include "ClassFlowImage.h"
+#include "PublishGate.h"
 
 /**
  * Properties of one ROI
@@ -70,6 +71,10 @@ struct NumberPost {
     // Rate-arbiter call budget (volatile). Throttles how often the vision LLM
     // is consulted so a stuck state cannot trigger an arbiter call every cycle.
     time_t lastArbiterCall;
+
+    // Publish gate state (volatile; seeded from prevalue.ini at startup). Decides
+    // only what is published, see PublishGate.h and [PostProcessing] PublishGate.
+    PublishGate publishGate;
 
     string timeStamp;           // localTimeStr; timestamp of last valid reading formatted as local time
     double FlowRateAct;         // currentRate; ΔValue/min; since usage is not limited to water meters, the physical unit is not known.

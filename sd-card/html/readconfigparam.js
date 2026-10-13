@@ -183,6 +183,12 @@ function ParseConfig() {
     ParamAddValue(param, catname, "ErrorMessage");
     ParamAddValue(param, catname, "CheckDigitIncreaseConsistency", 1, true, "false");
     ParamAddValue(param, catname, "StuckEscapeCycles", 1, false, "6");
+    ParamAddValue(param, catname, "PublishGate", 1, false, "false");
+    ParamAddValue(param, catname, "PublishGateMaxRate", 1, false, "0.03");
+    ParamAddValue(param, catname, "PublishGateSlack", 1, false, "0.02");
+    ParamAddValue(param, catname, "PublishGateDeadband", 1, false, "0.1");
+    ParamAddValue(param, catname, "PublishGateEscape", 1, false, "3");
+    ParamAddValue(param, catname, "PublishGateEscapeDown", 1, false, "12");
 
     var catname = "MQTT";
     category[catname] = new Object();
