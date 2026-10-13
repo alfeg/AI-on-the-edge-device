@@ -18,6 +18,9 @@ protected:
 
     int PreValueAgeStartup; 
     bool ErrorMessage;
+    // Publish gate ([PostProcessing] PublishGate*): final filter on what is
+    // published. Disabled by default; when disabled nothing changes.
+    PublishGateConfig PublishGateCfg;
 	
     ClassFlowCNNGeneral* flowAnalog;
     ClassFlowCNNGeneral* flowDigit;    
@@ -45,6 +48,7 @@ protected:
     void handlecheckDigitIncreaseConsistency(std::string _decsep, std::string _value);
 
     void WriteDataLog(int _index);
+    void applyPublishGate(int _index, time_t _imagetime);
 
 public:
     bool PreValueUse;
