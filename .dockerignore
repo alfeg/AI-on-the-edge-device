@@ -30,3 +30,7 @@ demo/
 update/
 remote_setup/
 manual_setup/
+
+# Local IDF component-manager state (holds host-specific absolute paths)
+code/managed_components/
+code/dependencies.lock

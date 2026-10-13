@@ -39,3 +39,6 @@ tools/meter-replay/.venv/
 # meter-train venv
 tools/meter-train/.venv/
 __pycache__/
+
+# IDF component manager download cache
+code/managed_components/
