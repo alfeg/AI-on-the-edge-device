@@ -19,12 +19,12 @@ A full evidence-based analysis of the known failure modes lives in [`docs/llm-fa
    - **Called from** `ClassFlowCNNGeneral.cpp`: low-confidence / hard-fail ROIs are pushed to `llmPending` during the CNN loop, then processed **after `delete tflite`** (memory pressure — the HTTP+TLS path needs internal heap). Never move the LLM call back inside the TFLite-loaded region.
 
 2. **Rate-violation arbiter** — same `LLMFallback.cpp` (`LLMFallbackArbitrateValue`, `buildArbiterPrompt`)
-   - Sends the **full meter image** asking for the whole value. Gated by `ArbitrateRateViolations` *and* `LLMFallbackIsActive()`.
-   - **Called from 3 sites in `ClassFlowPostProcessing.cpp::doFlow`**: the *early/pre-consistency* block (~line 890), the *neg-rate* branch (~line 992), and the *rate-too-high* branch (~line 1095).
+   - Sends a **stitched strip of this sequence's digit-wheel crops** (`buildSequenceDigitStrip`) and asks for N digits with no decimal point; the firmware places the decimal (`parseDigitsFromResponse`). Gated by `ArbitrateRateViolations` *and* `LLMFallbackIsActive()`.
+   - **Called from 3 sites in `ClassFlowPostProcessing.cpp::doFlow`**: the *early/pre-consistency* block, the *neg-rate* branch, and the *rate-too-high* branch (search for `LLMFallbackArbitrateValue`).
 
-3. **Post-processing rate guards** — `ClassFlowPostProcessing.cpp::doFlow` (the big per-`NUMBERS[j]` loop, ~lines 876–1204)
+3. **Post-processing rate guards** — `ClassFlowPostProcessing.cpp::doFlow` (the big per-`NUMBERS[j]` loop)
    - Order: assemble raw → `Value = stod(...)` → **early arbiter** → `checkDigitConsistency` → dead-band snap → **neg-rate guard** → **max-rate guard** → commit (`PreValue = Value`).
-   - `checkDigitConsistency` (lines ~1322) rewrites high-order digits toward `PreValue` — only valid when input is within one digit of `PreValue`; **its output is unbounded**.
+   - `checkDigitConsistency` rewrites high-order digits toward `PreValue` — only valid when input is within one digit of `PreValue`; **its output is unbounded**.
    - Violations that aren't witnessed/arbitrated set `Value = PreValue` and `continue` (clamp + hold). The **two-witness** machinery (`suspectValue`, `hasSuspectReading`, `suspectTimestamp`) promotes a repeated suspect.
 
 ## Data flow (one cycle, one number)

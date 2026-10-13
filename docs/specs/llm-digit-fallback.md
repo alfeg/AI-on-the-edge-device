@@ -1,5 +1,7 @@
 # LLM Digit Fallback — Feature Specification
 
+> **Historical spec.** The implemented `[LLMFallback]` keys are flat (`Provider`, `Endpoint`, `ApiKey`, `Model`, `ArbiterModel`, `AdditionalHeaders`, `Prompt`, `TimeoutMs`, `MaxTokens`, `ConfidenceThreshold`, `ArbitrateRateViolations`, `LogConversations`, `ArbiterMinIntervalSec`) — there are no `OpenAI.`/`Ollama.` prefixes; prefixed keys are silently ignored. Current reference: `param-docs/parameter-pages/LLMFallback/` and `sd-card/config/config.ini`.
+
 ## Overview
 
 When the on-device TFLite CNN fails to recognise a digit (class result `N`, i.e. `result_klasse >= 10`) or the confidence score falls below `CNNGoodThreshold` (i.e. `roi.isReject == true`), the device shall send the cropped ROI image to an external LLM vision API (OpenAI-compatible or Ollama) and use the returned digit instead.

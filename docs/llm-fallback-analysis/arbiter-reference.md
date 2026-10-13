@@ -25,8 +25,8 @@ The LLM call itself lives in `code/components/jomjol_llm_fallback/LLMFallback.cp
 violation detected
   └─ arbiterBudgetAllows(n, now)?            ── no ─► skip → two-witness / self-healing
         └─ yes: lastArbiterCall = now         (budget counts every attempt, incl. timeouts)
-           send full-meter JPEG + de-leaked prompt → vision LLM
-           parse number (parseNumberFromResponse)
+           send stitched digit-wheel strip (buildSequenceDigitStrip) + number-free prompt → vision LLM
+           parse N digits, firmware places decimal (parseDigitsFromResponse)
            arbiterAnswerAcceptable(answer, liveRaw, PreValue, n)?
               ├─ yes → commit answer (Value = answer; overrides PreValue this cycle)
               └─ no  → log "rejected (implausible or corroborates neither reading)"

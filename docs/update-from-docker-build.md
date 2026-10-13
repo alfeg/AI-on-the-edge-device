@@ -107,14 +107,14 @@ After flashing, if you want to enable the LLM digit fallback:
    TimeoutMs = 5000
    ConfidenceThreshold = 0.0
 
-   Ollama.Endpoint = http://192.168.1.50:11434
-   Ollama.Model = llava:7b
+   Endpoint = http://192.168.1.50:11434
+   Model = llava:7b
    ```
 
 3. Save and reboot the device (`http://<device-ip>/reboot`).
 
-See [docs/specs/llm-digit-fallback.md](specs/llm-digit-fallback.md) for the
-full parameter reference.
+See `param-docs/parameter-pages/LLMFallback/` for the full parameter reference
+(the original spec in [docs/specs/llm-digit-fallback.md](specs/llm-digit-fallback.md) uses outdated prefixed key names).
 
 ---
 
