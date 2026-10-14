@@ -179,10 +179,8 @@ bool ClassFlowAlignment::doFlow(string time)
             LogFile.WriteHeapInfo("ClassFlowAlignment-doFlow");
         }
     }
-
-    if (AlgROI) {
-        ImageBasis->writeToMemoryAsJPG((ImageData *)AlgROI, 90);
-    }
+    // No JPEG preview of the unaligned image here: while aligning, the web UI shows the "take image"
+    // placeholder (see ClassFlowControll::GetJPGStream). AlgROI gets the annotated image below.
 #endif
 
     if (!ImageTMP) {
