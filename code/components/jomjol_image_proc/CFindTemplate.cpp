@@ -5,6 +5,7 @@
 #include "../../include/defines.h"
 
 #include <esp_log.h>
+#include <cstdint>
 
 static const char* TAG = "C FIND TEMPL";
 
@@ -94,8 +95,11 @@ bool CFindTemplate::FindTemplate(RefInfo *_ref)
 //    ESP_LOGD(TAG, "FindTemplate 04");
 
 
-    double aktSAD;
-    double minSAD = pow(tpl_width * tpl_height * 255, 2);
+    // Sum of squared differences in integer arithmetic: the ESP32 FPU is single precision only,
+    // so the former double/pow() version ran in software emulation and took several seconds per reference.
+    // The result is identical: the sum is exact either way and the search order / tie-breaking is unchanged.
+    uint64_t aktSAD;
+    uint64_t minSAD = UINT64_MAX;
 
     RGBImageLock();
 
@@ -105,20 +109,30 @@ bool CFindTemplate::FindTemplate(RefInfo *_ref)
     if (_ref->alignment_algo == 0)  // 0 = "Default" (nur R-Kanal)
         _anzchannels = 1;
 
+    const int tpl_row_len = tpl_width * channels;
+
     for (xouter = ow_start; xouter <= ow_stop; xouter++)
         for (youter = oh_start; youter <= oh_stop; ++youter)
         {
             aktSAD = 0;
-            for (tpl_x = 0; tpl_x < tpl_width; tpl_x++)
-                for (tpl_y = 0; tpl_y < tpl_height; tpl_y++)
+            // Walk the template row by row so that image accesses stay sequential in (PSRAM) memory
+            for (tpl_y = 0; tpl_y < tpl_height; tpl_y++)
+            {
+                const stbi_uc* p_org = rgb_image + (channels * ((youter + tpl_y) * width + xouter));
+                const stbi_uc* p_tpl = rgb_template + (tpl_y * tpl_row_len);
+                uint32_t rowSAD = 0;
+                for (tpl_x = 0; tpl_x < tpl_row_len; tpl_x += channels)
                 {
-                    stbi_uc* p_org = rgb_image + (channels * ((youter + tpl_y) * width + (xouter + tpl_x)));
-                    stbi_uc* p_tpl = rgb_template + (channels * (tpl_y * tpl_width + tpl_x));
                     for (_ch = 0; _ch < _anzchannels; ++_ch)
                     {
-                        aktSAD += pow(p_tpl[_ch] - p_org[_ch], 2);
+                        int dif = p_tpl[tpl_x + _ch] - p_org[tpl_x + _ch];
+                        rowSAD += dif * dif;
                     }
                 }
+                aktSAD += rowSAD;
+                if (aktSAD >= minSAD)   // can no longer become the new minimum
+                    break;
+            }
             if (aktSAD < minSAD)
             {
                 minSAD = aktSAD;
