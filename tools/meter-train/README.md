@@ -37,6 +37,22 @@ tools/meter-replay/.venv/Scripts/python tools/meter-replay/recog_replay.py devic
 tools/meter-replay/.venv/Scripts/python tools/meter-replay/recog_replay.py device-logs/watermeter sd-card/config/dig-cont_0900_s3_q.tflite <model> --max-rate 0.03
 ```
 
+## Model size (speed on the device)
+
+CNN time on the ESP32 scales with multiply-accumulates; `train.py` prints `MACs/inference`.
+The dig-cont architecture (64,128,64 filters, dense 256,64) is 16M MACs per digit, ~2 s per
+ROI on an ESP32-CAM. A smaller shared model is as accurate on our data:
+
+```bash
+$PY tools/meter-train/train.py --filters 24,48,48 --dense 128,64 --out device-logs/train/models/small/f24.keras
+```
+
+Sweep 2026-10-14 (holdout, all wheels): f24 (3.0M MACs) gas 99.7% / water 99.9% / public 99.6%,
+equal or better than the 16M model; round time on the watermeter 24 s -> 10-11 s.
+16,32,32 (1.4M) loses the watermeter red wheel (dig6 96.8%); 8,16,16 is too small.
+Per-meter models (`--sources gasmeter,public`) were no better than the shared one at the
+same size, so one model serves both meters.
+
 ## Data rules (prepare.py)
 
 - Ours: `device-logs/<meter>/labels/final.csv`. `high` / `transition` rows train with weight 1,

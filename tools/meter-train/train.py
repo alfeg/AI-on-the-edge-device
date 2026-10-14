@@ -27,8 +27,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TRAIN_DIR = os.path.join(ROOT, "device-logs", "train")
 
 
-def build_model(width=1.0, dropout=0.25):
-    f = [int(64 * width), int(128 * width), int(64 * width)]
+def build_model(width=1.0, dropout=0.25, filters=None, dense=(256, 64)):
+    f = filters or [int(64 * width), int(128 * width), int(64 * width)]
     inp = keras.Input((32, 20, 3), name="image")
     x = layers.BatchNormalization()(inp)
     for n in f:
@@ -38,13 +38,26 @@ def build_model(width=1.0, dropout=0.25):
         x = layers.MaxPooling2D(2)(x)
     x = layers.Flatten()(x)
     x = layers.Dropout(dropout)(x)
-    x = layers.Dense(256)(x)
-    x = layers.LeakyReLU()(x)
-    x = layers.Dropout(dropout)(x)
-    x = layers.Dense(64)(x)
-    x = layers.LeakyReLU()(x)
+    for i, n in enumerate(dense):
+        if i:
+            x = layers.Dropout(dropout)(x)
+        x = layers.Dense(n)(x)
+        x = layers.LeakyReLU()(x)
     out = layers.Dense(10, activation="softmax")(x)
     return keras.Model(inp, out)
+
+
+def count_macs(model):
+    """Multiply-accumulates per inference for Conv2D/Dense (what dominates on the ESP32)."""
+    macs = 0
+    for l in model.layers:
+        if isinstance(l, layers.Conv2D):
+            _, h, w, c = l.output.shape
+            kh, kw = l.kernel_size
+            macs += h * w * c * kh * kw * l.input.shape[-1]
+        elif isinstance(l, layers.Dense):
+            macs += l.input.shape[-1] * l.units
+    return macs
 
 
 def augment(x, y, w):
@@ -74,12 +87,17 @@ def main():
     ap.add_argument("--batch", type=int, default=64)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--width", type=float, default=1.0)
+    ap.add_argument("--filters", default=None, help="conv filters, e.g. 16,32,32 (overrides --width)")
+    ap.add_argument("--dense", default="256,64", help="hidden dense units, e.g. 128,64")
+    ap.add_argument("--sources", default=None, help="train only on these src values, e.g. gasmeter,public")
     ap.add_argument("--seed", type=int, default=42)
     a = ap.parse_args()
 
     keras.utils.set_random_seed(a.seed)
     d = np.load(a.data)
     sel = (d["split"] == "train") & (d["W"] > 0)
+    if a.sources:
+        sel &= np.isin(d["src"], a.sources.split(","))
     X, Y, W = d["X"][sel].astype(np.float32), d["Y"][sel], d["W"][sel]
     rng = np.random.default_rng(a.seed)
     idx = rng.permutation(len(X))
@@ -93,8 +111,11 @@ def main():
           .batch(a.batch).prefetch(tf.data.AUTOTUNE))
     vds = tf.data.Dataset.from_tensor_slices((X[vi], Y[vi], W[vi])).batch(256)
 
-    model = build_model(a.width)
+    filters = [int(v) for v in a.filters.split(",")] if a.filters else None
+    dense = [int(v) for v in a.dense.split(",") if v]
+    model = build_model(a.width, filters=filters, dense=dense)
     model.summary(print_fn=lambda s: print(s) if "params" in s.lower() else None)
+    print(f"MACs/inference {count_macs(model) / 1e6:.2f}M")
     steps = a.epochs * int(np.ceil(len(ti) / a.batch))
     sched = keras.optimizers.schedules.CosineDecay(a.lr, steps, warmup_target=None)
     model.compile(optimizer=keras.optimizers.Adam(sched),
