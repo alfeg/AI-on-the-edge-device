@@ -25,3 +25,20 @@ code/edgeAI.code-workspace
 .DS_Store
 tools/parameter-tooltip-generator/html
 tools/parameter-tooltip-generator/AI-on-the-edge-device-docs
+build-output/
+docker-build.log
+
+# Claude Code per-user (permissions, env). Project-wide skills under
+# .claude/skills/ ARE committed.
+.claude/settings.local.json
+
+# Local device log pulls / analysis scratch (not for commit)
+device-logs/
+tools/meter-replay/.venv/
+
+# meter-train venv
+tools/meter-train/.venv/
+__pycache__/
+
+# IDF component manager download cache
+code/managed_components/
