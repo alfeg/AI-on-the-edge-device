@@ -773,7 +773,7 @@ esp_err_t ClassFlowControll::GetJPGStream(std::string _fn, httpd_req_t *req)
                 free(fileBuffer);
                 */
             }
-            else if (aktstatus.find("Take Image") != -1) {
+            else if ((aktstatus.find("Take Image") != -1) || (aktstatus.find("Aligning") != -1)) {
                 if (flowalignment && flowalignment->AlgROI) {
                     std::string filename = "/sdcard/html/Flowstate_take_image.jpg";
                     result = send_file(req, filename);
