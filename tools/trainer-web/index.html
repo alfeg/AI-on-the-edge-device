@@ -110,6 +110,7 @@ nav.steps button { height: auto; flex: 1 0 auto; display: grid; grid-template-co
 nav.steps button .sn { font: var(--text-2xs)/1 var(--font-mono); color: var(--color-muted); }
 nav.steps button .np { grid-column: 2; font: var(--text-2xs)/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: var(--track-label); color: var(--color-muted); }
 nav.steps button:hover { color: var(--color-ink); background: none; }
+nav.steps button:active { transform: none; }
 nav.steps button[aria-current="step"] { color: var(--color-ink); box-shadow: inset 0 -2px 0 var(--color-accent); }
 nav.steps .np.ok { color: var(--color-good); } nav.steps .np.warn { color: var(--color-warn); } nav.steps .np.bad { color: var(--color-bad); }
 

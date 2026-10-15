@@ -91,7 +91,11 @@ function show(step) {
   document.querySelector(`nav.steps button[data-step="${step}"]`)?.setAttribute("aria-current", "step");
   if (step !== "labels") $("drawer").hidden = true;
   if (location.hash !== `#${step}`) history.replaceState(null, "", `#${step}`);
-  window.scrollTo({ top: 0 });
+  // keep the step rail where it is: if it is pinned to the top, open the new step right
+  // under it; otherwise don't scroll at all (jumping to the top made the page lurch)
+  const header = document.querySelector("header");
+  const railTop = header.getBoundingClientRect().bottom + scrollY + parseFloat(getComputedStyle($("steps").parentElement).rowGap || "0");
+  if (scrollY > railTop) window.scrollTo({ top: railTop, behavior: "instant" });
 }
 document.querySelectorAll("nav.steps button").forEach((b) => b.addEventListener("click", () => show(b.dataset.step)));
 const setNavH = () => document.documentElement.style.setProperty("--navh", `${$("steps").offsetHeight}px`);
