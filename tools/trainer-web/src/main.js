@@ -296,7 +296,7 @@ function openCell(cell) {
   $("revRoi").value = roi;
   $("revLabel").value = l.startsWith("*") ? "" : l;
   $("revStatus").value = l === "*review" ? "review" : "usable";
-  renderReview(true);
+  filterChanged(); // in guided review: jump to that wheel and label's group, not the next one
   document.querySelector("#sLabels h3").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 $("coverage").addEventListener("click", (e) => { const cell = e.target.closest("td.cov"); if (cell) openCell(cell); });
