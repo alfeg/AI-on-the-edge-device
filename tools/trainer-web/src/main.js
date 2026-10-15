@@ -96,6 +96,7 @@ function show(step) {
   document.querySelectorAll("nav.steps button").forEach((b) => b.removeAttribute("aria-current"));
   document.querySelector(`nav.steps button[data-step="${step}"]`)?.setAttribute("aria-current", "step");
   if (step !== "labels") $("drawer").hidden = true;
+  hidePop();
   if (location.hash !== `#${step}`) history.replaceState(null, "", `#${step}`);
   // keep the step rail where it is: if it is pinned to the top, open the new step right
   // under it; otherwise don't scroll at all (jumping to the top made the page lurch)
@@ -213,7 +214,7 @@ function scheduleCoverage() {
 /** Table heading with a hint (focusable, so it also works by keyboard and on touch). */
 const th = (text, hint) => `<th data-hint="${esc(hint)}" tabindex="0">${esc(t(text))}</th>`;
 function renderCoverage() {
-  if (pop.cell) hidePop(); // its cell is about to be replaced
+  hidePop(); // its cell is about to be replaced; also drops a preview still waiting to open
   const c = S.cov;
   if (!c.rois.length) { $("coverage").innerHTML = `<p class="hint">${esc(t("No images yet. Collect them in step 2."))}</p>`; status("verdict", ""); pill("labelsPill", "–"); return; }
   const head = `<tr>${th("Wheel", HINT.wheel)}${th("Images", HINT.images)}${th("Days", HINT.days)}${th("Usable", HINT.usable)}${th("To review", HINT.toReview)}${LABELS.map((l) => th(l, HINT.digit(l))).join("")}</tr>`;
@@ -241,11 +242,12 @@ function spreadPick(list, n) {
   return out;
 }
 function hidePop() {
-  clearTimeout(pop.timer); pop.cell = null; $("covPop").hidden = true;
+  clearTimeout(pop.timer); pop.timer = 0; pop.cell = null; $("covPop").hidden = true;
   pop.urls.forEach((u) => URL.revokeObjectURL(u)); pop.urls = [];
 }
 async function showPop(cell) {
   if (pop.cell === cell) return;
+  if (!cell.isConnected || !cell.offsetParent) { hidePop(); return; } // redrawn or hidden meanwhile
   hidePop(); pop.cell = cell;
   const { roi, l } = cell.dataset;
   const list = cellCrops(roi, l).sort((a, b) => (a.ts < b.ts ? -1 : 1));
@@ -302,6 +304,12 @@ function openCell(cell) {
 $("coverage").addEventListener("click", (e) => { const cell = e.target.closest("td.cov"); if (cell) openCell(cell); });
 $("coverage").addEventListener("keydown", (e) => { const cell = e.target.closest("td.cov"); if (cell && e.key === "Enter") { e.preventDefault(); openCell(cell); } });
 window.addEventListener("scroll", () => { if (pop.cell) hidePop(); }, { passive: true });
+// a fast pointer can leave the table without a mouseout on the cell: anywhere else, close it
+document.addEventListener("mouseover", (e) => {
+  if ((pop.cell || pop.timer) && !e.target.closest?.("#coverage td.cov") && document.activeElement !== pop.cell) {
+    clearTimeout(pop.timer); pop.timer = setTimeout(hidePop, 150);
+  }
+});
 
 // ---------------------------------------------------------------- 2. collect
 let plan = null;
