@@ -1,6 +1,6 @@
 # trainer-web: train digit models in the browser
 
-A single HTML page (`trainer.html`, ~250 KB gzipped) that trains the AI-on-the-edge digit
+A single HTML page (`trainer.html`, ~410 KB gzipped) that trains the AI-on-the-edge digit
 model in the browser and exports an int8 `.tflite` file the firmware loads. It can be
 served from the device's SD card (`/html/trainer.html.gz`) or opened from disk. There are
 no CDN links, so it works on a network without internet access.
