@@ -801,15 +801,15 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ---------------------------------------------------------------- 4. train
-let trainCtx = { epochs: 1, history: [] };
+let trainCtx = { epochs: 1, history: [], phase: 0, phases: 1, label: "" };
 function onTrainProgress(m) {
-  const frac = (m.epoch + m.step / m.steps) / trainCtx.epochs;
+  const frac = (trainCtx.phase + (m.epoch + m.step / m.steps) / trainCtx.epochs) / trainCtx.phases;
   setBar("trainBar", frac); title(`${Math.round(frac * 100)}% training`);
 }
 function onEpoch(e) {
   trainCtx.history.push(e); drawChart();
-  status("trainStatus", `Epoch ${e.epoch + 1}/${e.epochs}  loss ${e.loss.toFixed(3)}  validation loss ${e.valLoss.toFixed(3)}  ` +
-    `validation accuracy ${(e.valAcc * 100).toFixed(1)}%  ${e.seconds.toFixed(1)} s/epoch  about ${Math.ceil(((e.epochs - e.epoch - 1) * e.seconds) / 60)} min left`);
+  status("trainStatus", `${trainCtx.label}Epoch ${e.epoch + 1}/${e.epochs}  loss ${e.loss.toFixed(3)}  validation loss ${e.valLoss.toFixed(3)}  ` +
+    `validation accuracy ${(e.valAcc * 100).toFixed(1)}%  ${e.seconds.toFixed(1)} s/epoch  about ${Math.ceil((((e.epochs - e.epoch - 1) + (trainCtx.phases - trainCtx.phase - 1) * e.epochs) * e.seconds) / 60)} min left`);
 }
 function drawChart() {
   const c = $("chart"), h = trainCtx.history;
@@ -832,36 +832,52 @@ function drawChart() {
   }
 }
 
+/** Train one model in the worker on the given set; resolves with the worker's "trained" message. */
+async function trainOnce(set, filters, dense, epochs) {
+  worker.postMessage({ type: "data", X: set.X, Y: set.Y.slice() }, [set.X.buffer]);
+  const done = once("trained");
+  trainCtx.history = [];
+  worker.postMessage({ type: "train", filters, dense, epochs, batch: +$("batch").value || 64, lr: +$("lr").value || 1e-3,
+    trainIdx: set.trainIdx, valIdx: set.valIdx, testIdx: set.testIdx });
+  return done;
+}
 async function runTrain() {
   const tb = performance.now();
-  const set = buildTrainSet(S.crops, S.eff, { includeUnconfirmed: $("useUnconfirmed").checked });
+  const includeUnconfirmed = $("useUnconfirmed").checked, final = $("finalAll").checked;
+  const set = buildTrainSet(S.crops, S.eff, { includeUnconfirmed });
   tlog(`buildTrainSet train ${set.trainIdx.length} test ${set.testIdx.length}`, tb);
   if (set.trainIdx.length < 200) throw new Error(`only ${set.trainIdx.length} usable training images; collect or label more first`);
   const [filters, dense] = parseSize($("size").value);
   const epochs = +$("epochs").value || 60;
-  trainCtx = { epochs, history: [] };
-  status("trainStatus", `Training on ${set.trainIdx.length.toLocaleString()} images, testing on ${set.testIdx.length.toLocaleString()} from the newest days…`);
-  worker.postMessage({ type: "data", X: set.X, Y: set.Y.slice() }, [set.X.buffer]);
   const t0 = performance.now();
-  const done = once("trained");
-  worker.postMessage({ type: "train", filters, dense, epochs, batch: +$("batch").value || 64, lr: +$("lr").value || 1e-3,
-    trainIdx: set.trainIdx, valIdx: set.valIdx, testIdx: set.testIdx });
-  const res = await done;
-  setBar("trainBar", 1);
+  // 1. train without the test images, to compare with the installed model on them
+  trainCtx = { epochs, history: [], phase: 0, phases: final ? 2 : 1, label: final ? "Step 1 of 2 (for the comparison): " : "" };
+  status("trainStatus", `${trainCtx.label}training on ${set.trainIdx.length.toLocaleString()} images, testing on ${set.testIdx.length.toLocaleString()} from each wheel’s newest days…`);
+  const res = await trainOnce(set, filters, dense, epochs);
   S.set = set; S.compare = compareOnTest(set, res.probs);
-  // export right away (calibration on 300 training images)
+  let calib = set.trainIdx.slice(0, 300), kept = res.bestEpoch, trainN = set.trainIdx.length;
+  // 2. the model to install: the same recipe on every usable image, the test images included
+  if (final && !S.stop) {
+    const all = buildTrainSet(S.crops, S.eff, { includeUnconfirmed, all: true });
+    trainCtx = { ...trainCtx, phase: 1, label: "Step 2 of 2 (final model, all images): " };
+    status("trainStatus", `${trainCtx.label}training on ${all.trainIdx.length.toLocaleString()} images…`);
+    const res2 = await trainOnce(all, filters, dense, epochs);
+    calib = all.trainIdx.slice(0, 300); kept = res2.bestEpoch; trainN = all.trainIdx.length;
+  }
+  setBar("trainBar", 1);
+  // export right away (calibration on 300 training images of the set the worker holds now)
   const name = `dig-browser-f${filters[0]}_${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")}_q.tflite`;
   const ex = once("exported");
-  worker.postMessage({ type: "export", name, calibIdx: set.trainIdx.slice(0, 300) });
+  worker.postMessage({ type: "export", name, calibIdx: calib });
   const { bytes } = await ex;
   const tot = S.compare.reduce((a, e) => ({ n: a.n + e.n, m: a.m + e.model, d: a.d + e.dev, dn: a.dn + e.devN, md: a.md + e.modelOnDev }),
     { n: 0, m: 0, d: 0, dn: 0, md: 0 });
   // compare with the installed model on the same images, and only with enough of them
   const fair = tot.dn >= MIN_COMPARE;
-  S.model = { name, bytes, at: Date.now(), acc: tot.n ? tot.m / tot.n : null, compareN: tot.dn,
+  S.model = { name, bytes, at: Date.now(), acc: tot.n ? tot.m / tot.n : null, compareN: tot.dn, final: final && !S.stop, trainN,
     accOnDev: fair ? tot.md / tot.dn : null, devAcc: fair ? tot.d / tot.dn : null };
   await store.kvSet("lastModel", S.model);
-  status("trainStatus", `Done in ${((performance.now() - t0) / 60000).toFixed(1)} min (kept epoch ${res.bestEpoch + 1}). Model ${(bytes.length / 1024).toFixed(0)} KB.`);
+  status("trainStatus", `Done in ${((performance.now() - t0) / 60000).toFixed(1)} min (kept epoch ${kept + 1}). Model ${(bytes.length / 1024).toFixed(0)} KB, trained on ${trainN.toLocaleString()} images${S.model.final ? ", the test images included" : ""}.`);
   renderCompare(); renderModel();
   return S.model;
 }
@@ -877,7 +893,8 @@ function renderCompare() {
     `<td class="${cls(e.dev, e.devN)}">${pct(e.dev, e.devN)}</td><td>${e.t}</td><td>${pct(e.tModel, e.t)}</td></tr>`).join("");
   const m = S.model;
   $("evalTable").innerHTML = `<table><thead><tr>${th("Wheel", HINT.wheel)}${th("Test images", HINT.testImages)}${th("New model", HINT.newModel)}${th("Device now", HINT.deviceNow)}${th("Between digits", HINT.between)}${th("New model", HINT.newModelBetween)}</tr></thead><tbody>${rows}</tbody></table>
-    <p class="hint">Test images come from the newest days and were not used for training. "Device now" is what the installed model read on the same images. ${
+    <p class="hint">Test images are each wheel’s newest days and were not used for this comparison. "Device now" is what the installed model read on the same images.${
+      m?.final ? " The model to install was then trained again on all images, the test images included, so it has seen more than the one scored here." : ""} ${
       m?.devAcc != null ? `On the ${m.compareN} test images the device read itself: new ${(m.accOnDev * 100).toFixed(1)}%, installed ${(m.devAcc * 100).toFixed(1)}%. Where the label came from the device, the installed model's score is flattered.`
         : `Only ${m?.compareN ?? 0} test image${(m?.compareN ?? 0) === 1 ? " was" : "s were"} read by the device (${MIN_COMPARE} needed), so the two models are not compared; collect more days.`}</p>`;
   const v = verdictOf(m);
@@ -997,7 +1014,7 @@ function staticHints() {
   at('label[for="days"]', HINT.daysBack); at('label[for="quota"]', HINT.perReading);
   at('label[for="size"]', HINT.modelSize); at('label[for="epochs"]', HINT.epochs);
   at('label[for="batch"]', HINT.batch); at('label[for="lr"]', HINT.lr);
-  at('label[for="llmN"]', HINT.llmN); at('label[for="revStatus"]', HINT.show);
+  at('label[for="llmN"]', HINT.llmN); at('label:has(#finalAll)', HINT.finalAll); at('label[for="revStatus"]', HINT.show);
   const lg = document.querySelectorAll(".legend > span");
   if (lg[0]) { lg[0].dataset.hint = HINT.trainLoss; lg[0].tabIndex = 0; }
   if (lg[1]) { lg[1].dataset.hint = HINT.valLoss; lg[1].tabIndex = 0; }

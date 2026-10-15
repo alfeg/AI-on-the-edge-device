@@ -400,7 +400,8 @@ th[data-hint], .legend span[data-hint] { text-decoration: underline dotted var(-
       <label class="f" for="batch">Batch <input type="number" id="batch" value="64" min="8" max="512" step="8"></label>
       <label class="f" for="lr">Learning rate <input type="number" id="lr" value="0.001" step="0.0001" min="0.00001"></label>
     </div>
-    <div class="row opts"><label class="c"><input type="checkbox" id="useUnconfirmed"> Also train on unconfirmed labels (faster, but can repeat the device’s mistakes)</label></div>
+    <div class="row opts"><label class="c"><input type="checkbox" id="useUnconfirmed"> Also train on unconfirmed labels (faster, but can repeat the device’s mistakes)</label>
+      <label class="c"><input type="checkbox" id="finalAll" checked> Then train the final model on all images (takes twice as long)</label></div>
     <div class="row"><button class="primary act" id="btnTrain">Start training</button><button id="btnStop" disabled>Stop</button></div>
     <div class="bar"><i id="trainBar"></i></div>
     <div class="status" id="trainStatus"></div>

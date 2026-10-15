@@ -1,25 +1,34 @@
 // Build training arrays from the stored crops and their effective labels.
-//  - test split: the newest ~20% of days (or of time, with fewer than 5 days) so the
-//    result says how the model does on days it has not seen
+//  - test split, per wheel: the newest ~20% of that wheel's days (or of its images, with
+//    fewer than 5 days), so the result says how the model does on days it has not seen.
+//    Per wheel, so a wheel added recently (all its images from the last days) still
+//    keeps most of its images for training.
+//  - all: no test split; the final model trains on every usable image
 //  - only "you" and "confirmed" labels, unless includeUnconfirmed
 //  - per wheel and label at most `cap` training crops, spread evenly over time (a wheel at
 //    rest would otherwise flood the set with one picture)
 import { PIX } from "./dataset.js";
 import { target } from "./labels.js";
 
-export function buildTrainSet(crops, eff, { includeUnconfirmed = false, cap = 300, testFrac = 0.2 } = {}) {
+/** Per wheel: a predicate "is this row a test row", from the newest days or images of the wheel. */
+function testSplit(rows, testFrac) {
+  const byRoi = new Map();
+  for (const r of rows) { if (!byRoi.has(r.roi)) byRoi.set(r.roi, []); byRoi.get(r.roi).push(r); }
+  const cut = new Map(); // roi -> {days?: Set, ts?: string}
+  for (const [roi, rs] of byRoi) {
+    const days = [...new Set(rs.map((r) => r.ts.slice(0, 8)))].sort();
+    if (days.length >= 5) cut.set(roi, { days: new Set(days.slice(days.length - Math.max(1, Math.round(days.length * testFrac)))) });
+    else cut.set(roi, { ts: rs[Math.floor(rs.length * (1 - testFrac))]?.ts ?? "99999999" }); // rs is sorted by ts
+  }
+  return (r) => { const c = cut.get(r.roi); return c.days ? c.days.has(r.ts.slice(0, 8)) : r.ts >= c.ts; };
+}
+
+export function buildTrainSet(crops, eff, { includeUnconfirmed = false, cap = 300, testFrac = 0.2, all = false } = {}) {
   const ok = (s) => s === "human" || s === "confirmed" || (includeUnconfirmed && s === "unconfirmed");
   const rows = crops.filter((c) => { const e = eff.get(c.id); return e && e.label && ok(e.status); })
     .sort((a, b) => (a.ts < b.ts ? -1 : 1));
   const days = [...new Set(rows.map((r) => r.ts.slice(0, 8)))].sort();
-  let isTest;
-  if (days.length >= 5) {
-    const testDays = new Set(days.slice(days.length - Math.max(1, Math.round(days.length * testFrac))));
-    isTest = (r) => testDays.has(r.ts.slice(0, 8));
-  } else {
-    const cut = rows[Math.floor(rows.length * (1 - testFrac))]?.ts ?? "99999999";
-    isTest = (r) => r.ts >= cut;
-  }
+  const isTest = all ? () => false : testSplit(rows, testFrac);
   const test = [], groups = new Map();
   for (const r of rows) {
     const e = eff.get(r.id);
@@ -34,9 +43,9 @@ export function buildTrainSet(crops, eff, { includeUnconfirmed = false, cap = 30
     const step = (g.length - 1) / (cap - 1);
     for (let i = 0; i < cap; i++) train.push(g[Math.round(i * step)]);
   }
-  const all = [...train, ...test];
-  const X = new Uint8Array(all.length * PIX), Y = new Float32Array(all.length * 10);
-  const meta = all.map((r, i) => {
+  const rowsOut = [...train, ...test];
+  const X = new Uint8Array(rowsOut.length * PIX), Y = new Float32Array(rowsOut.length * 10);
+  const meta = rowsOut.map((r, i) => {
     X.set(r.pix, i * PIX);
     const e = eff.get(r.id);
     Y.set(target(e.label), i * 10);

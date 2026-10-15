@@ -59,7 +59,7 @@ export const HINT = {
   readingsFull: "Readings (wheel + what the device read) that reach “images per reading” after this download.",
   readingsShort: "Readings that still have fewer than “images per reading”, even after this download. More days would help.",
   // compare table (Train)
-  testImages: "Images from the newest days, held back from training, with a usable label.",
+  testImages: "Each wheel’s newest days (or newest 20% of its images), held back from training for this comparison, with a usable label.",
   newModel: "Share of the test images the new model reads correctly.",
   deviceNow: "Share the installed model got right on the test images it read itself (its reading is in the file name).",
   between: "Test images where the wheel stands between two digits.",
@@ -71,6 +71,7 @@ export const HINT = {
   epochs: "How many times training goes through all images. The page keeps the epoch with the lowest validation loss, so more is safe, only slower.",
   batch: "Images per training step. Larger is faster on a GPU; the default suits most cases.",
   lr: "How big each learning step is. Too high and training jumps around; too low and it is slow.",
+  finalAll: "The comparison needs a model that has not seen the test images. The model you install does not: training it again on all images uses the newest days too, which matters most for a wheel added recently.",
   llmN: "How many images to send to the AI server this time. They are spread over all wheels and readings.",
   show: "Needs review: one source, or sources disagree. Disagreements: the device and the AI read different digits. Not approved by you: everything you have not labelled yourself. Usable: what training uses. Labelled by you: your own labels.",
 };
