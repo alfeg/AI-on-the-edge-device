@@ -1054,7 +1054,7 @@ async function init() {
   show(location.hash.slice(1) || "start");
   for (const o of $("size").options) {
     const [f, d] = parseSize(o.value);
-    o.textContent = t(SIZE_NAMES[o.value] || "{m} M ops/digit", { m: (countMacs({ filters: f, dense: d }) / 1e6).toFixed(1) });
+    o.textContent = t(SIZE_NAMES[o.value] || "{m} M ops/digit", { m: (countMacs({ filters: f, dense: d }) / 1e6).toLocaleString(LOC, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) });
   }
   const ready = once("ready"); worker.postMessage({ type: "init" });
   ready.then(({ backend }) => { $("bBackend").textContent = backend === "webgl" ? "GPU (WebGL)" : t("CPU only: training will be slow"); });
