@@ -1,10 +1,20 @@
-/* Space Grotesk (SIL OFL 1.1), Latin subset, variable weight. Inlined into trainer.html at
-   build time: the page is served by the device and must work without internet. */
+/* Iosevka (SIL OFL 1.1, © Renzhi Li — see fonts/OFL-iosevka.txt), subset to the characters
+   this page uses (Latin-1, punctuation, arrows), no ligatures: ~10 KB per weight instead of
+   ~1 MB. Inlined into trainer.html at build time: the page is served by the device and
+   must work without internet. Rebuild the subset with scripts/subset-font.sh after adding
+   new non-ASCII characters to the page. Used for display (headings, step rail, readouts)
+   and mono (labels, logs, digits); body text stays on the system face. */
 @font-face {
-  font-family: "Space Grotesk Variable";
+  font-family: "Trainer Iosevka";
   font-style: normal;
+  font-weight: 400;
   font-display: swap;
-  font-weight: 300 700;
-  src: url("../node_modules/@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2") format("woff2-variations");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  src: url("./fonts/iosevka-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Trainer Iosevka";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./fonts/iosevka-600.woff2") format("woff2");
 }

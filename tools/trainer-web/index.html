@@ -6,7 +6,7 @@
 <title>Meter Model Trainer</title>
 <style>
 /* Hallmark · macrostructure: Workbench (app wizard) · tone: utilitarian / technical · anchor hue: cobalt 258
- * genre: modern-minimal · theme: Cobalt (adapted: display embedded, body + mono = system faces, offline device page)
+ * genre: modern-minimal · theme: Cobalt (adapted: Iosevka subset embedded as display + mono, body = system face, offline device page)
  * nav: step rail · footer: none (app) · contrast: pass (40–41) · mobile: pass (34, 49, 50–57)
  * Hallmark · pre-emit critique: P4 H4 E4 S5 R4 V5
  * Layout: an instrument panel. Header readout, a sticky step rail, one step at a time on cool paper;
@@ -37,9 +37,9 @@
   --color-focus:      var(--color-accent);
 
   /* type */
-  --font-display: "Space Grotesk Variable", "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Trainer Iosevka", ui-monospace, "Cascadia Mono", Consolas, monospace;
   --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+  --font-mono: "Trainer Iosevka", ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   --text-2xs: 0.6875rem;  /* 11px — mono labels, table heads */
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
@@ -98,7 +98,7 @@ code { font: var(--text-sm) var(--font-mono); color: var(--color-ink); }
 
 /* header: wordmark left, a mono status readout right */
 header { display: flex; flex-wrap: wrap; gap: var(--space-2xs) var(--space-md); align-items: baseline; justify-content: space-between; padding-top: var(--space-xs); }
-h1 { margin: 0; font: 600 var(--text-lg)/1.2 var(--font-display); letter-spacing: -0.01em; color: var(--color-ink); }
+h1 { margin: 0; font: 600 var(--text-lg)/1.2 var(--font-display); color: var(--color-ink); }
 .badges { display: flex; flex-wrap: wrap; gap: var(--space-2xs) var(--space-sm); font: var(--text-xs) var(--font-mono); color: var(--color-muted); }
 .badges span + span::before { content: "·"; margin-right: var(--space-sm); color: var(--color-rule-strong); }
 
@@ -120,8 +120,8 @@ nav.steps .np.ok { color: var(--color-good); } nav.steps .np.warn { color: var(-
 /* a step: no card — it sits on the paper; hairlines only where something needs a frame */
 section { display: grid; gap: var(--space-md); min-width: 0; }
 section h2 { margin: 0 0 var(--space-2xs); display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: center;
-  font: 600 var(--text-2xl)/1.1 var(--font-display); letter-spacing: -0.02em; color: var(--color-ink); overflow-wrap: anywhere; min-width: 0; }
-section h3 { margin: var(--space-md) 0 0; padding-top: var(--space-md); border-top: var(--rule); font: 600 var(--text-xl)/1.2 var(--font-display); letter-spacing: -0.01em; color: var(--color-ink); }
+  font: 600 var(--text-2xl)/1.1 var(--font-display); color: var(--color-ink); overflow-wrap: anywhere; min-width: 0; }
+section h3 { margin: var(--space-md) 0 0; padding-top: var(--space-md); border-top: var(--rule); font: 600 var(--text-xl)/1.2 var(--font-display); color: var(--color-ink); }
 .pill { font: 500 var(--text-2xs)/1 var(--font-mono); text-transform: uppercase; letter-spacing: var(--track-label); padding: var(--space-2xs) var(--space-xs); border-radius: var(--radius-sm); border: var(--rule); color: var(--color-muted); }
 .pill.ok { color: var(--color-good); border-color: currentColor; } .pill.warn { color: var(--color-warn); border-color: currentColor; } .pill.bad { color: var(--color-bad); border-color: currentColor; }
 p.hint { margin: 0; color: var(--color-muted); font-size: var(--text-sm); line-height: 1.55; max-width: 68ch; }
