@@ -155,6 +155,10 @@ button:active { transform: translateY(1px); }
 button.primary { color: var(--color-accent-ink); background: var(--color-accent); border-color: var(--color-accent); }
 button.primary:hover { background: var(--color-accent-hover); border-color: var(--color-accent-hover); }
 button.danger { color: var(--color-bad); }
+footer.foot { display: flex; flex-wrap: wrap; gap: var(--space-2xs) var(--space-md); justify-content: space-between; padding-top: var(--space-sm);
+  border-top: var(--rule); font: var(--text-xs) var(--font-mono); color: var(--color-muted); }
+footer.foot a { color: var(--color-muted); text-decoration: underline dotted; text-underline-offset: 3px; }
+footer.foot a:hover, footer.foot a:focus-visible { color: var(--color-accent); }
 button.link { height: auto; padding: 0; border: none; background: none; color: var(--color-accent); font-weight: 600;
   text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 button.link:hover { background: none; text-decoration-thickness: 2px; }
@@ -423,6 +427,7 @@ th[data-hint], .legend span[data-hint] { text-decoration: underline dotted var(-
     <div class="more"><button class="link act" id="btnUndo" type="button" hidden>Go back to the previous model</button></div>
     <p class="hint" data-i18n="installHint">Installing uploads the model to <code>/config/</code>, saves a copy of the configuration next to it, switches the digit model right after a reading round and restarts the device, then waits for its first reading. The previous model file stays on the card.</p>
   </section>
+  <footer class="foot"><span>Meter model trainer</span><a href="https://github.com/alfeg" target="_blank" rel="noopener">github.com/alfeg</a></footer>
 </div>
 
 <div class="pop" id="covPop" hidden role="tooltip"></div>

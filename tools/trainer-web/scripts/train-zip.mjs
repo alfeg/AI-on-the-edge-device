@@ -1,7 +1,7 @@
 // Train in the page from a labelled dataset zip (headless Edge/Chrome, WebGL), then save the
 // exported model: checks the browser trainer end to end against the Python pipeline.
 //   npx vite preview --port 4173 &
-//   node scripts/train-zip.mjs http://localhost:4173/trainer.html <dataset.zip> <out.tflite> [size=32,64,64|128,64] [epochs=60]
+//   [SHOT=train.png] node scripts/train-zip.mjs http://localhost:4173/trainer.html <dataset.zip> <out.tflite> [size=32,64,64|128,64] [epochs=60]
 import fs from "node:fs";
 import puppeteer from "puppeteer-core";
 
@@ -30,6 +30,7 @@ await wait(() => /^Done|failed/.test(document.getElementById("trainStatus").text
 clearInterval(timer);
 console.log("train:", await txt("#trainStatus"), "|", await txt("#trainPill"));
 console.log(await txt("#evalTable"));
+if (process.env.SHOT) { await page.setViewport({ width: 1200, height: 1400 }); await new Promise((r) => setTimeout(r, 500)); await page.screenshot({ path: process.env.SHOT, fullPage: true }); }
 const b64 = await page.evaluate(() => new Promise((res, rej) => {
   const r = indexedDB.open("meter-trainer");
   r.onsuccess = () => { const g = r.result.transaction("kv").objectStore("kv").get("lastModel");

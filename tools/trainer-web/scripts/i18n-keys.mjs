@@ -43,7 +43,8 @@ htmlKeys.forEach((k) => keys.add(k));
 
 const RU = (await import(`file://${path.join(root, "src", "i18n-ru.js").replace(/\\/g, "/")}`)).default;
 const IGNORE = new Set(["selected"]); // attribute words the loose patterns above pick up
-const all = [...keys].filter((k) => k && !IGNORE.has(k) && !/^[\d\s./|·–—%-]+$/.test(k)).sort();
+const isUrl = (k) => /^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(k); // link texts like github.com/alfeg
+const all = [...keys].filter((k) => k && !IGNORE.has(k) && !isUrl(k) && !/^[\d\s./|·–—%-]+$/.test(k)).sort();
 if (process.argv.includes("--all")) { all.forEach((k) => console.log(k)); process.exit(0); }
 const missing = all.filter((k) => !(k in RU));
 const unused = Object.keys(RU).filter((k) => !keys.has(k));

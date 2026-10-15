@@ -1,6 +1,6 @@
 // Page language: English (the source text) or Russian. Strings are looked up by their
 // English text, so the code stays readable: t(english, vars) with {name} placeholders. The choice is
-// kept in this browser; without one, the browser's language decides.
+// kept in this browser; without one, the browser's language list decides (first en/ru in it).
 //
 // Static text in index.html is translated once at start: text nodes and the placeholder /
 // aria-label / title attributes by their English text, and elements with markup inside by
@@ -12,7 +12,12 @@ export const LANGS = { en: "English", ru: "Русский" };
 
 function pick() {
   try { const s = localStorage.getItem(KEY); if (s in LANGS) return s; } catch { /* storage blocked */ }
-  return (navigator.languages || [navigator.language]).some((l) => /^ru\b/i.test(l || "")) ? "ru" : "en";
+  // the browser's preferred languages, in order: the first one this page has wins
+  for (const l of navigator.languages || [navigator.language]) {
+    const code = (l || "").slice(0, 2).toLowerCase();
+    if (code in LANGS) return code;
+  }
+  return "en";
 }
 export const LANG = pick();
 
