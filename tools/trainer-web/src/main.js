@@ -238,35 +238,40 @@ async function showPop(cell) {
   const pick = spreadPick(list, POP_N);
   const what = l === "*usable" ? "usable" : l === "*review" ? "to review" : `labelled ${l}`;
   const el = $("covPop");
-  el.innerHTML = `<div class="ph">${esc(roi)} · ${what} · ${list.length} image${list.length === 1 ? "" : "s"}${list.length > POP_N ? `, ${POP_N} shown` : ""}</div><div class="pg"></div><div class="pf">Click the number to review them</div>`;
+  el.innerHTML = `<div class="ph">${esc(roi)} · ${what} · ${list.length} image${list.length === 1 ? "" : "s"}${list.length > POP_N ? `, ${POP_N} shown` : ""}</div><div class="pg"></div><div class="pf">Click the number to review them.</div>`;
   const grid = el.querySelector(".pg");
   for (const c of pick) {
     const fig = document.createElement("figure");
     const img = document.createElement("img"); img.alt = "";
     const cap = document.createElement("figcaption");
     const e = S.eff.get(c.id);
-    cap.textContent = l.startsWith("*") ? (e.label ?? "?") : `${c.ts.slice(6, 8)}.${c.ts.slice(4, 6)} ${c.ts.slice(9, 11)}:${c.ts.slice(11, 13)}`;
+    const when = `${c.ts.slice(6, 8)}.${c.ts.slice(4, 6)}`, at = `${c.ts.slice(9, 11)}:${c.ts.slice(11, 13)}`;
+    cap.innerHTML = l.startsWith("*") ? `<b>${esc(e.label ?? "?")}</b>${when} ${at}` : `${when}<br>${at}`;
     fig.append(img, cap); grid.append(fig);
     store.getJpeg(c.id).then((b) => {
       if (!b || pop.cell !== cell) return;
       const u = URL.createObjectURL(new Blob([b], { type: "image/jpeg" })); pop.urls.push(u); img.src = u;
     });
   }
-  // place next to the cell, kept inside the window
+  // place it under the table (or above it), lined up with the cell, so it never covers
+  // the other numbers; the popover itself ignores the pointer (see .pop in the CSS)
   el.hidden = false;
-  const r = cell.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight;
-  let x = r.left + r.width / 2 - w / 2, y = r.bottom + 6;
-  if (y + h > innerHeight - 8) y = r.top - h - 6;
-  x = Math.max(8, Math.min(innerWidth - w - 8, x));
-  el.style.left = `${x}px`; el.style.top = `${Math.max(8, y)}px`;
+  const r = cell.getBoundingClientRect(), t = cell.closest("table").getBoundingClientRect();
+  const w = el.offsetWidth, h = el.offsetHeight;
+  let y = t.bottom + 8;
+  if (y + h > innerHeight - 8 && t.top - h - 8 > 8) y = t.top - h - 8;
+  const x = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+  el.style.left = `${x}px`; el.style.top = `${Math.max(8, Math.min(y, innerHeight - h - 8))}px`;
 }
 $("coverage").addEventListener("mouseover", (e) => {
   const cell = e.target.closest("td.cov"); if (!cell) return;
   clearTimeout(pop.timer); pop.timer = setTimeout(() => showPop(cell), 120);
 });
 $("coverage").addEventListener("mouseout", (e) => {
-  if (e.relatedTarget?.closest?.("td.cov") === pop.cell) return;
-  clearTimeout(pop.timer); pop.timer = setTimeout(hidePop, 150);
+  const to = e.relatedTarget?.closest?.("td.cov");
+  if (to === pop.cell) return;
+  clearTimeout(pop.timer);
+  pop.timer = setTimeout(to ? () => showPop(to) : hidePop, to ? 60 : 200);
 });
 $("coverage").addEventListener("focusin", (e) => { const cell = e.target.closest("td.cov"); if (cell) showPop(cell); });
 $("coverage").addEventListener("focusout", () => hidePop());
