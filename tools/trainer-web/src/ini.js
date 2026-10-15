@@ -1,5 +1,6 @@
 // Line-preserving access to the device's config.ini. A leading ";" disables a key or a
 // whole section (";[Analog]"). Edits replace single lines and leave everything else as is.
+import { t } from "./i18n.js";
 
 function sections(lines) {
   const out = [];
@@ -39,8 +40,8 @@ export function setKey(text, section, key, value) {
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const lines = text.split(/\r?\n/);
   const s = findSection(lines, section);
-  if (!s) throw new Error(`config.ini has no [${section}] section`);
-  if (!s.enabled) throw new Error(`[${section}] is disabled in config.ini`);
+  if (!s) throw new Error(t("config.ini has no [{section}] section", { section }));
+  if (!s.enabled) throw new Error(t("[{section}] is disabled in config.ini", { section }));
   for (let i = s.start + 1; i < s.end; i++) {
     if (keyLine(lines[i], key)) { lines[i] = `${key} = ${value}`; return lines.join(eol); }
   }

@@ -2,6 +2,7 @@
 // (same origin, so no CORS). Requests are sequential: the ESP32 serves one at a time and
 // also has to keep its reading rounds going.
 import { md5 } from "./md5.js";
+import { t } from "./i18n.js";
 
 const base = "";
 let chain = Promise.resolve();
@@ -76,7 +77,7 @@ export async function upload(path, bytes) {
   const r = await queued(() => req(`/upload${path}?md5`, { method: "POST", body: bytes }, 120000));
   const got = (await r.json()).md5;
   const want = md5(bytes);
-  if (got !== want) throw new Error(`upload of ${path} corrupted (device MD5 ${got}, expected ${want})`);
+  if (got !== want) throw new Error(t("upload of {path} corrupted (device MD5 {got}, expected {want})", { path, got, want }));
   return want;
 }
 
@@ -95,7 +96,7 @@ export async function waitRoundEnd(onStatus = () => {}, maxMs = 6 * 60000) {
     if (s.startsWith("Flow finished") && s !== first) return s;
     await sleep(3000);
   }
-  throw new Error("no reading round finished within 6 minutes");
+  throw new Error(t("no reading round finished within 6 minutes"));
 }
 
 /**
@@ -106,13 +107,13 @@ export async function writeConfigAndReboot(newText, onStatus = () => {}) {
   const old = await readConfig();
   const ts = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15);
   const backup = `/config/config_${ts}.ini.bak`;
-  onStatus("Saving a backup of the current configuration…");
+  onStatus(t("Saving a backup of the current configuration…"));
   await upload(backup, new TextEncoder().encode(old));
-  onStatus(`Backup saved as ${backup}.`);
-  const round = await waitRoundEnd((s) => onStatus(`Waiting for the reading round to finish (device: ${s})`));
-  onStatus(`Round finished (${round}). Writing the new configuration…`);
+  onStatus(t("Backup saved as {file}.", { file: backup }));
+  const round = await waitRoundEnd((s) => onStatus(t("Waiting for the reading round to finish (device: {s})", { s })));
+  onStatus(t("Round finished ({round}). Writing the new configuration…", { round }));
   await upload("/config/config.ini", new TextEncoder().encode(newText));
-  onStatus("Configuration written and checked (MD5). Restarting the device…");
+  onStatus(t("Configuration written and checked (MD5). Restarting the device…"));
   await queued(() => req("/reboot", {}, 10000)).catch(() => {}); // the connection drops on reboot
   return backup;
 }
@@ -124,7 +125,7 @@ export async function writeConfigAndReboot(newText, onStatus = () => {}) {
 export async function waitForReading(onStatus = () => {}, quietMs = 150000, maxMs = 12 * 60000) {
   const t0 = Date.now();
   while (Date.now() - t0 < quietMs) {
-    onStatus(`Device is restarting; waiting ${Math.ceil((quietMs - (Date.now() - t0)) / 1000)} s before asking it anything`);
+    onStatus(t("Device is restarting; waiting {n} s before asking it anything", { n: Math.ceil((quietMs - (Date.now() - t0)) / 1000) }));
     await sleep(5000);
   }
   let before = null;
@@ -132,12 +133,12 @@ export async function waitForReading(onStatus = () => {}, quietMs = 150000, maxM
     try {
       const v = await readValue();
       const ts = Object.values(v)[0]?.timestamp;
-      if (before === null) { before = ts; onStatus(`Device answers again (last reading ${ts}). Waiting for a new reading…`); }
+      if (before === null) { before = ts; onStatus(t("Device answers again (last reading {ts}). Waiting for a new reading…", { ts })); }
       else if (ts !== before) return v;
     } catch {
-      onStatus("Waiting for the device to answer…");
+      onStatus(t("Waiting for the device to answer…"));
     }
     await sleep(10000);
   }
-  throw new Error("no new reading within 12 minutes of the restart");
+  throw new Error(t("no new reading within 12 minutes of the restart"));
 }

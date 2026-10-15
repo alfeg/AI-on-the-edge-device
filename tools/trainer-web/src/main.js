@@ -14,6 +14,7 @@ import { LABELS, effective, steadyLabels } from "./labels.js";
 import * as llm from "./llm.js";
 import { buildTrainSet, compareOnTest } from "./trainset.js";
 import { initHints, pillHint, HINT, statusHint, MIN_COMPARE } from "./hints.js";
+import { t, LANG, LANGS, setLang, translatePage } from "./i18n.js";
 import TrainWorker from "./worker.js?worker&inline";
 
 const $ = (id) => document.getElementById(id);
@@ -22,6 +23,7 @@ const S = {
   crops: [], labels: new Map(), steady: new Map(), eff: new Map(), cov: null,
   set: null, compare: null, model: null, busy: null, stop: false,
 };
+translatePage();
 const baseTitle = document.title;
 const DEBUG = location.search.includes("debug");
 const tlog = (label, t0) => { if (DEBUG) console.log(`[timing] ${label}: ${(performance.now() - t0).toFixed(0)} ms`); };
@@ -54,12 +56,13 @@ function status(id, text, bad = false) {
   if (S.busy && (id === S.where || id === "autoStatus")) $("activityText").textContent = `${S.busy}: ${text}`;
 }
 const setBar = (id, frac) => { $(id).style.transform = `scaleX(${Math.max(0, Math.min(1, frac)).toFixed(3)})`; };
-function pill(id, text, kind = "") {
-  const el = $(id); el.textContent = text; el.className = `pill ${kind}`;
+/** Step status word: text is the English key (it picks the hint), shown translated. */
+function pill(id, text, kind = "", vars) {
+  const el = $(id); el.textContent = t(text, vars); el.className = `pill ${kind}`;
   const hint = pillHint(id, text);
   el.dataset.hint = hint; el.tabIndex = hint ? 0 : -1;
   const np = document.querySelector(`nav.steps .np[data-for="${id}"]`);
-  if (np) { np.textContent = text; np.className = `np ${kind}`; np.dataset.hint = hint; }
+  if (np) { np.textContent = el.textContent; np.className = `np ${kind}`; np.dataset.hint = hint; }
   renderSummary();
 }
 const title = (t) => { document.title = t ? `${t} · ${baseTitle}` : baseTitle; };
@@ -73,16 +76,16 @@ function lockActions(on) {
 }
 const WHERE_STEP = { setupStatus: "setup", collectStatus: "collect", llmStatus: "labels", trainStatus: "train", installStatus: "install", autoStatus: "start" };
 function busy(name, where = "autoStatus") {
-  if (S.busy) { status(where, `Wait for “${S.busy}” to finish first.`, true); return false; }
-  S.busy = name; S.where = where; S.stop = false; $("bgNote").hidden = false; lockActions(true);
-  $("activityText").textContent = `${name}…`; $("activity").hidden = false;
+  if (S.busy) { status(where, t("Wait for “{task}” to finish first.", { task: S.busy }), true); return false; }
+  S.busy = t(name); S.where = where; S.stop = false; $("bgNote").hidden = false; lockActions(true);
+  $("activityText").textContent = `${S.busy}…`; $("activity").hidden = false;
   return true;
 }
 function idle() { S.busy = null; $("bgNote").hidden = true; $("activity").hidden = true; title(""); lockActions(false); renderModel(); }
 
 // ---------------------------------------------------------------- wizard navigation
 const STEPS = ["start", "setup", "collect", "labels", "train", "install"];
-const STEP_NAMES = { start: "Start", setup: "Device", collect: "Collect", labels: "Labels", train: "Train", install: "Install" };
+const STEP_NAMES = { start: t("Start"), setup: t("Device"), collect: t("Collect"), labels: t("Labels"), train: t("Train"), install: t("Install") };
 const STEP_PILL = { setup: "setupPill", collect: "collectPill", labels: "labelsPill", train: "trainPill", install: "installPill" };
 let currentStep = "start";
 function show(step) {
@@ -116,7 +119,7 @@ document.querySelectorAll("section[data-step]").forEach((sec) => {
   } else nav.append(document.createElement("span"));
   if (i < STEPS.length - 1) {
     const next = document.createElement("button"); next.type = "button"; next.className = "primary";
-    next.textContent = `Next: ${STEP_NAMES[STEPS[i + 1]]} →`;
+    next.textContent = t("Next: {step} →", { step: STEP_NAMES[STEPS[i + 1]] });
     next.addEventListener("click", () => show(STEPS[i + 1]));
     nav.append(next);
   }
@@ -147,21 +150,21 @@ worker.onmessage = ({ data: m }) => {
 async function refreshSetup() {
   if (!S.onDevice) {
     pill("setupPill", "not on a device", "warn");
-    $("checks").innerHTML = `<li class="lv-warn"><span class="dot"></span><span class="t">This page is not served by an AI-on-the-edge device</span>
-      <span class="d">Upload trainer.html.gz to /html/ on the device and open http://&lt;device&gt;/trainer.html to collect images and install models. Importing a dataset zip and training work here too.</span></li>`;
+    $("checks").innerHTML = `<li class="lv-warn"><span class="dot"></span><span class="t">${esc(t("This page is not served by an AI-on-the-edge device"))}</span>
+      <span class="d">${esc(t("Upload trainer.html.gz to /html/ on the device and open http://<device>/trainer.html to collect images and install models. Importing a dataset zip and training work here too."))}</span></li>`;
     return;
   }
   try {
     S.cfg = await dev.readConfig();
-  } catch (e) { status("setupStatus", `Could not read the configuration: ${e.message}`, true); return; }
+  } catch (e) { status("setupStatus", t("Could not read the configuration: {err}", { err: e.message }), true); return; }
   S.checks = configChecks(S.cfg);
   const worst = S.checks.some((c) => c.level === "block") ? "block" : S.checks.some((c) => c.level === "warn") ? "warn" : "ok";
   pill("setupPill", { block: "action needed", warn: "check", ok: "ready" }[worst], { block: "bad", warn: "warn", ok: "ok" }[worst]);
   $("checks").innerHTML = S.checks.map((c, i) => `<li class="lv-${c.level}"><span class="dot"></span><span class="t">${esc(c.title)}</span>
     ${c.fix ? `<button class="primary act" data-fix="${i}">${esc(c.fix.label)}</button>` : "<span></span>"}
     <span class="d">${esc(c.detail || "")}</span>
-    ${c.fix ? `<span class="confirm d" data-confirm="${i}" hidden>This changes the configuration and restarts the device once.
-      <button class="primary act" data-yes="${i}">Change and restart</button><button data-no="${i}">Cancel</button></span>` : ""}</li>`).join("");
+    ${c.fix ? `<span class="confirm d" data-confirm="${i}" hidden>${esc(t("This changes the configuration and restarts the device once."))}
+      <button class="primary act" data-yes="${i}">${esc(t("Change and restart"))}</button><button data-no="${i}">${esc(t("Cancel"))}</button></span>` : ""}</li>`).join("");
 }
 $("checks").addEventListener("click", async (e) => {
   const b = e.target.closest("button"); if (!b) return;
@@ -175,9 +178,9 @@ $("checks").addEventListener("click", async (e) => {
     const next = S.checks[i].fix.apply(S.cfg);
     const backup = await dev.writeConfigAndReboot(next, (s) => status("setupStatus", s));
     await dev.waitForReading((s) => status("setupStatus", s));
-    status("setupStatus", `Done. The previous configuration is saved as ${backup}.`);
+    status("setupStatus", t("Done. The previous configuration is saved as {file}.", { file: backup }));
   } catch (err) {
-    status("setupStatus", `The change did not complete: ${err.message}`, true);
+    status("setupStatus", t("The change did not complete: {err}", { err: err.message }), true);
   } finally { idle(); refreshSetup(); }
 });
 
@@ -192,12 +195,12 @@ async function refreshProject() {
   renderCoverage();
   const rois = S.cov.rois.map((r) => r.roi);
   const sel = $("revRoi").value;
-  $("revRoi").innerHTML = `<option value="">All</option>` + rois.map((r) => `<option ${r === sel ? "selected" : ""}>${esc(r)}</option>`).join("");
-  pill("collectPill", S.crops.length ? `${S.crops.length.toLocaleString()} images` : "empty", S.crops.length ? "ok" : "");
+  $("revRoi").innerHTML = `<option value="">${esc(t("All"))}</option>` + rois.map((r) => `<option ${r === sel ? "selected" : ""}>${esc(r)}</option>`).join("");
+  pill("collectPill", S.crops.length ? "{n} images" : "empty", S.crops.length ? "ok" : "", { n: S.crops.length.toLocaleString() });
   renderReview(true);
   const est = await store.usage();
-  if (est && !S.busy) status("collectStatus", `${S.crops.length.toLocaleString()} images stored in this browser` +
-    (est.usage ? ` (${(est.usage / 1e6).toFixed(0)} MB used)` : ""));
+  if (est && !S.busy) status("collectStatus", t("{n} images stored in this browser", { n: S.crops.length.toLocaleString() }) +
+    (est.usage ? t(" ({mb} MB used)", { mb: (est.usage / 1e6).toFixed(0) }) : ""));
 }
 
 /** Recount after labels changed (debounced: keyboard labelling can be fast). */
@@ -207,22 +210,23 @@ function scheduleCoverage() {
   covTimer = setTimeout(() => { S.cov = coverage(S.crops, S.eff); renderCoverage(); }, 250);
 }
 /** Table heading with a hint (focusable, so it also works by keyboard and on touch). */
-const th = (text, hint) => `<th data-hint="${esc(hint)}" tabindex="0">${esc(text)}</th>`;
+const th = (text, hint) => `<th data-hint="${esc(hint)}" tabindex="0">${esc(t(text))}</th>`;
 function renderCoverage() {
   if (pop.cell) hidePop(); // its cell is about to be replaced
   const c = S.cov;
-  if (!c.rois.length) { $("coverage").innerHTML = `<p class="hint">No images yet. Collect them in step 2.</p>`; status("verdict", ""); pill("labelsPill", "–"); return; }
+  if (!c.rois.length) { $("coverage").innerHTML = `<p class="hint">${esc(t("No images yet. Collect them in step 2."))}</p>`; status("verdict", ""); pill("labelsPill", "–"); return; }
   const head = `<tr>${th("Wheel", HINT.wheel)}${th("Images", HINT.images)}${th("Days", HINT.days)}${th("Usable", HINT.usable)}${th("To review", HINT.toReview)}${LABELS.map((l) => th(l, HINT.digit(l))).join("")}</tr>`;
   const cell = (roi, l, n, cls = "") => (n ? `<td class="cov ${cls}" tabindex="0" data-roi="${esc(roi)}" data-l="${esc(l)}">${n}</td>` : `<td class="${cls}">${n}</td>`);
   const body = c.rois.map((g) => `<tr><td>${esc(g.roi)}${g.rolling ? " ↻" : ""}</td><td>${g.crops}</td><td>${g.days}</td>${cell(g.roi, "*usable", g.usable)}${cell(g.roi, "*review", g.review)}${
     LABELS.map((l, i) => { const n = g.labels[l]; const need = i < 10 || g.rolling; return cell(g.roi, l, n, !need ? "" : n === 0 ? "lo" : n < 15 ? "mid" : ""); }).join("")}</tr>`).join("");
   $("coverage").innerHTML = `<table><thead>${head}</thead><tbody>${body}</tbody></table>
-    <p class="hint">Usable images per label (your labels and confirmed ones). Point at a number to see examples; click it to review exactly those images. ↻ = a rolling wheel that often stops between two digits, so its in-between positions are needed too.</p>`;
-  if (c.verdict === "ready") { pill("labelsPill", "ready to train", "ok"); status("verdict", `Enough data: every digit has at least ${MIN_PER_DIGIT} usable images over ${c.days} days.`); }
+    <p class="hint">${esc(t("Usable images per label (your labels and confirmed ones). Point at a number to see examples; click it to review exactly those images. ↻ = a rolling wheel that often stops between two digits, so its in-between positions are needed too."))}</p>`;
+  if (c.verdict === "ready") { pill("labelsPill", "ready to train", "ok"); status("verdict", t("Enough data: every digit has at least {min} usable images over {days} days.", { min: MIN_PER_DIGIT, days: c.days })); }
   else if (c.verdict === "not-enough") {
     pill("labelsPill", "not enough yet", "warn");
-    status("verdict", `Not enough yet${c.days < 2 ? ` (only ${c.days} day of images)` : ""}. Missing: ${c.missing.slice(0, 8).join(", ")}${c.missing.length > 8 ? ` and ${c.missing.length - 8} more` : ""}. ` +
-      "Collect more days, or label images in the review below. You can still train, with weaker results.");
+    status("verdict", t("Not enough yet") + (c.days < 2 ? t(" (only {n} day of images)", { n: c.days }) : "") + ". " +
+      t("Missing: {list}", { list: c.missing.slice(0, 8).join(", ") }) + (c.missing.length > 8 ? t(" and {n} more", { n: c.missing.length - 8 }) : "") + ". " +
+      t("Collect more days, or label images in the review below. You can still train, with weaker results."));
   }
 }
 
@@ -245,9 +249,9 @@ async function showPop(cell) {
   const { roi, l } = cell.dataset;
   const list = cellCrops(roi, l).sort((a, b) => (a.ts < b.ts ? -1 : 1));
   const pick = spreadPick(list, POP_N);
-  const what = l === "*usable" ? "usable" : l === "*review" ? "to review" : `labelled ${l}`;
+  const what = l === "*usable" ? t("usable") : l === "*review" ? t("to review") : t("labelled {l}", { l });
   const el = $("covPop");
-  el.innerHTML = `<div class="ph">${esc(roi)} · ${what} · ${list.length} image${list.length === 1 ? "" : "s"}${list.length > POP_N ? `, ${POP_N} shown` : ""}</div><div class="pg"></div><div class="pf">Click the number to review them.</div>`;
+  el.innerHTML = `<div class="ph">${esc(roi)} · ${esc(what)} · ${esc(t(list.length === 1 ? "{n} image" : "{n} images", { n: list.length }))}${list.length > POP_N ? esc(t(", {n} shown", { n: POP_N })) : ""}</div><div class="pg"></div><div class="pf">${esc(t("Click the number to review them."))}</div>`;
   const grid = el.querySelector(".pg");
   for (const c of pick) {
     const fig = document.createElement("figure");
@@ -300,21 +304,21 @@ window.addEventListener("scroll", () => { if (pop.cell) hidePop(); }, { passive:
 
 // ---------------------------------------------------------------- 2. collect
 let plan = null;
-const fmtTime = (sec) => (sec < 90 ? `${Math.max(1, Math.round(sec))} s` : sec < 5400 ? `${Math.round(sec / 60)} min` : `${(sec / 3600).toFixed(1)} h`);
+const fmtTime = (sec) => (sec < 90 ? t("{n} s", { n: Math.max(1, Math.round(sec)) }) : sec < 5400 ? t("{n} min", { n: Math.round(sec / 60) }) : t("{n} h", { n: (sec / 3600).toFixed(1) }));
 const FILES_PER_S = 3; // what an ESP32-CAM serves; the measured rate replaces it while downloading
 
 function renderPlan(p) {
   const box = $("plan");
   if (!p) { box.hidden = true; return; }
   box.hidden = false;
-  box.innerHTML = `<div><b>${p.toFetch.toLocaleString()}</b><span>new images to download</span></div>
-    <div><b>about ${fmtTime(p.toFetch / FILES_PER_S)}</b><span>at about ${FILES_PER_S} images/s</span></div>
-    <div><b>${p.onDevice.toLocaleString()}</b><span>images in ${p.listed} new hour folders on the device</span></div>
-    <div><b>${p.skippedEnough.toLocaleString()}</b><span>skipped: enough images of that reading already</span></div>
-    <div><b>${p.have.toLocaleString()}</b><span>already here${p.knownHours ? `, plus ${p.knownHours} hours collected earlier` : ""}</span></div>
-    <details class="pw"><summary>Per wheel</summary><div class="tw">${perWheelTable(p)}</div></details>`;
+  box.innerHTML = `<div><b>${p.toFetch.toLocaleString()}</b><span>${esc(t("new images to download"))}</span></div>
+    <div><b>${esc(t("about {time}", { time: fmtTime(p.toFetch / FILES_PER_S) }))}</b><span>${esc(t("at about {n} images/s", { n: FILES_PER_S }))}</span></div>
+    <div><b>${p.onDevice.toLocaleString()}</b><span>${esc(t("images in {n} new hour folders on the device", { n: p.listed }))}</span></div>
+    <div><b>${p.skippedEnough.toLocaleString()}</b><span>${esc(t("skipped: enough images of that reading already"))}</span></div>
+    <div><b>${p.have.toLocaleString()}</b><span>${esc(t("already here"))}${p.knownHours ? esc(t(", plus {n} hours collected earlier", { n: p.knownHours })) : ""}</span></div>
+    <details class="pw"><summary>${esc(t("Per wheel"))}</summary><div class="tw">${perWheelTable(p)}</div></details>`;
   $("btnCollect").disabled = !p.toFetch;
-  $("btnCollect").textContent = p.toFetch ? `Download ${p.toFetch.toLocaleString()} images` : "Nothing new to download";
+  $("btnCollect").textContent = p.toFetch ? t("Download {n} images", { n: p.toFetch.toLocaleString() }) : t("Nothing new to download");
 }
 function perWheelTable(p) {
   const w = new Map();
@@ -336,18 +340,19 @@ function haveByGroup() {
   return m;
 }
 async function runScan() {
-  if (!S.onDevice) { status("collectStatus", "Collecting needs the page to be opened from the device.", true); return null; }
-  status("collectStatus", "Listing the device's image folders…");
+  if (!S.onDevice) { status("collectStatus", t("Collecting needs the page to be opened from the device."), true); return null; }
+  status("collectStatus", t("Listing the device's image folders…"));
   plan = await scan({
     days: +$("days").value || 7, quota: +$("quota").value || 100, have: haveByGroup(), shouldStop: () => S.stop,
     onProgress: (p) => {
-      status("collectStatus", `Listing folder ${p.listed + 1} of ${p.total} (${p.folder})…`);
-      setBar("collectBar", p.listed / Math.max(1, p.total)); title(`checking ${p.listed}/${p.total}`);
+      status("collectStatus", t("Listing folder {i} of {n} ({folder})…", { i: p.listed + 1, n: p.total, folder: p.folder }));
+      setBar("collectBar", p.listed / Math.max(1, p.total)); title(t("checking {i}/{n}", { i: p.listed, n: p.total }));
     },
   });
   setBar("collectBar", 0);
   renderPlan(plan);
-  status("collectStatus", plan.complete ? `Checked ${plan.listed} new hour folders in ${fmtTime(plan.listSeconds)}${plan.fromCache ? ` (${plan.fromCache} remembered from an earlier check)` : ""}.` : "Check stopped early; the numbers cover the folders listed so far.");
+  status("collectStatus", plan.complete ? t("Checked {n} new hour folders in {time}", { n: plan.listed, time: fmtTime(plan.listSeconds) }) +
+    (plan.fromCache ? t(" ({n} remembered from an earlier check)", { n: plan.fromCache }) : "") + "." : t("Check stopped early; the numbers cover the folders listed so far."));
   return plan;
 }
 async function runDownload() {
@@ -359,12 +364,13 @@ async function runDownload() {
     onProgress: (p) => {
       const left = p.total - p.fetched - p.failed;
       setBar("collectBar", (p.fetched + p.failed) / Math.max(1, p.total));
-      status("collectStatus", `${p.fetched.toLocaleString()} of ${p.total.toLocaleString()} downloaded${p.failed ? `, ${p.failed} failed` : ""} · ${p.rate.toFixed(1)} images/s · about ${fmtTime(left / Math.max(0.1, p.rate))} left`);
-      title(`collecting ${Math.round(((p.fetched + p.failed) / Math.max(1, p.total)) * 100)}%`);
+      status("collectStatus", t("{i} of {n} downloaded", { i: p.fetched.toLocaleString(), n: p.total.toLocaleString() }) + (p.failed ? t(", {n} failed", { n: p.failed }) : "") +
+        " · " + t("{n} images/s", { n: p.rate.toFixed(1) }) + " · " + t("about {time} left", { time: fmtTime(left / Math.max(0.1, p.rate)) }));
+      title(t("collecting {p}%", { p: Math.round(((p.fetched + p.failed) / Math.max(1, p.total)) * 100) }));
     },
   });
-  status("collectStatus", `${S.stop ? "Stopped" : "Done"}: ${res.fetched.toLocaleString()} new images${res.failed ? `, ${res.failed} could not be read` : ""}.`);
-  plan = null; renderPlan(null); $("btnCollect").textContent = "Download"; $("btnCollect").disabled = true;
+  status("collectStatus", t(S.stop ? "Stopped: {n} new images" : "Done: {n} new images", { n: res.fetched.toLocaleString() }) + (res.failed ? t(", {n} could not be read", { n: res.failed }) : "") + ".");
+  plan = null; renderPlan(null); $("btnCollect").textContent = t("Download"); $("btnCollect").disabled = true;
   await refreshProject();
 }
 async function runCollect() { await runScan(); if (!S.stop) await runDownload(); }
@@ -372,13 +378,13 @@ async function runCollect() { await runScan(); if (!S.stop) await runDownload();
 $("btnScan").addEventListener("click", async () => {
   if (!busy("checking the device", "collectStatus")) return;
   $("btnCollectStop").disabled = false;
-  try { await runScan(); } catch (e) { status("collectStatus", `Checking failed: ${e.message}`, true); }
+  try { await runScan(); } catch (e) { status("collectStatus", t("Checking failed: {err}", { err: e.message }), true); }
   finally { idle(); $("btnCollectStop").disabled = true; $("btnCollect").disabled = !plan?.toFetch; }
 });
 $("btnCollect").addEventListener("click", async () => {
   if (!busy("collect", "collectStatus")) return;
   $("btnCollectStop").disabled = false;
-  try { await runDownload(); } catch (e) { status("collectStatus", `Collecting failed: ${e.message}`, true); }
+  try { await runDownload(); } catch (e) { status("collectStatus", t("Collecting failed: {err}", { err: e.message }), true); }
   finally { idle(); $("btnCollectStop").disabled = true; $("btnCollect").disabled = !plan?.toFetch; }
 });
 $("btnCollectStop").addEventListener("click", () => { S.stop = true; });
@@ -387,10 +393,10 @@ $("btnImport").addEventListener("click", () => $("fileZip").click());
 $("fileZip").addEventListener("change", async (e) => {
   const f = e.target.files[0]; if (!f || !busy("import", "collectStatus")) return;
   try {
-    status("collectStatus", `Reading ${f.name}…`);
+    status("collectStatus", t("Reading {file}…", { file: f.name }));
     const buf = new Uint8Array(await f.arrayBuffer());
     const files = await new Promise((res, rej) => unzip(buf, (err, out) => (err ? rej(err) : res(out))));
-    if (!files["labels.csv"]) throw new Error("labels.csv is missing from the zip");
+    if (!files["labels.csv"]) throw new Error(t("labels.csv is missing from the zip"));
     // plain datasets: every label counts as yours; exports from this page carry the sources
     const rows = parseCsv(new TextDecoder().decode(files["labels.csv"])).filter((r) => r.label || r.human || r.llm || r.device);
     const rich = rows.length && "status" in rows[0];
@@ -409,12 +415,12 @@ $("fileZip").addEventListener("change", async (e) => {
         else { if (r.human) rec.human = r.human; if (r.llm) { rec.llm = r.llm; rec.llmModel = r.llm_model || "import"; } }
         labels.push(rec);
       } catch { /* skip unreadable */ }
-      if (batch.length >= 200) { await store.putCrops(batch); await store.putLabels(labels); n += batch.length; batch = []; labels = []; status("collectStatus", `Imported ${n} of ${rows.length}…`); }
+      if (batch.length >= 200) { await store.putCrops(batch); await store.putLabels(labels); n += batch.length; batch = []; labels = []; status("collectStatus", t("Imported {i} of {n}…", { i: n, n: rows.length })); }
     }
     if (batch.length) { await store.putCrops(batch); await store.putLabels(labels); n += batch.length; }
-    status("collectStatus", `Imported ${n} labelled images from ${f.name}.`);
+    status("collectStatus", t("Imported {n} labelled images from {file}.", { n, file: f.name }));
     await refreshProject();
-  } catch (err) { status("collectStatus", `Import failed: ${err.message || err}`, true); }
+  } catch (err) { status("collectStatus", t("Import failed: {err}", { err: err.message || err }), true); }
   finally { idle(); e.target.value = ""; }
 });
 
@@ -441,12 +447,12 @@ function saveFile(name, data, type) {
 const stamp = () => new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
 const exportName = (ext) => `meter-labels_${(S.onDevice ? location.host : "local").replace(/[^\w.-]/g, "_")}_${stamp()}.${ext}`;
 function exportCsv(where) {
-  if (!S.crops.length) { status(where, "Nothing to export yet.", true); return; }
+  if (!S.crops.length) { status(where, t("Nothing to export yet."), true); return; }
   saveFile(exportName("csv"), toCsv(exportRows(false)), "text/csv");
-  status(where, `Exported the labels of ${S.crops.length.toLocaleString()} images (CSV).`);
+  status(where, t("Exported the labels of {n} images (CSV).", { n: S.crops.length.toLocaleString() }));
 }
 async function exportZip(where) {
-  if (!S.crops.length) { status(where, "Nothing to export yet.", true); return; }
+  if (!S.crops.length) { status(where, t("Nothing to export yet."), true); return; }
   if (!busy("export", where)) return;
   try {
     const rows = exportRows(true);
@@ -455,12 +461,12 @@ async function exportZip(where) {
     for (const { c, row } of rows) {
       const b = await store.getJpeg(c.id);
       if (b) files[row.path] = [b, { level: 0 }]; // JPEGs don't compress further
-      if (++n % 500 === 0) status(where, `Packing ${n.toLocaleString()} of ${rows.length.toLocaleString()} images…`);
+      if (++n % 500 === 0) status(where, t("Packing {i} of {n} images…", { i: n.toLocaleString(), n: rows.length.toLocaleString() }));
     }
     const out = await new Promise((res, rej) => zip(files, (err, data) => (err ? rej(err) : res(data))));
     saveFile(exportName("zip"), out, "application/zip");
-    status(where, `Exported ${rows.length.toLocaleString()} images with their labels (${(out.length / 1e6).toFixed(1)} MB). Import it here or on another computer with “Import a labelled dataset zip”.`);
-  } catch (e) { status(where, `Export failed: ${e.message}`, true); }
+    status(where, t("Exported {n} images with their labels ({mb} MB). Import it here or on another computer with “Import a labelled dataset zip”.", { n: rows.length.toLocaleString(), mb: (out.length / 1e6).toFixed(1) }));
+  } catch (e) { status(where, t("Export failed: {err}", { err: e.message }), true); }
   finally { idle(); }
 }
 $("btnExportCsv").addEventListener("click", () => exportCsv("collectStatus"));
@@ -472,7 +478,7 @@ $("btnClear").addEventListener("click", () => { $("clearConfirm").hidden = false
 $("btnClearNo").addEventListener("click", () => { $("clearConfirm").hidden = true; });
 $("btnClearYes").addEventListener("click", async () => {
   $("clearConfirm").hidden = true;
-  await store.clearAll(); S.model = null; await refreshProject(); status("collectStatus", "All data in this browser deleted.");
+  await store.clearAll(); S.model = null; await refreshProject(); status("collectStatus", t("All data in this browser deleted."));
 });
 
 // ---------------------------------------------------------------- 3. labels: AI server
@@ -537,19 +543,19 @@ function llmQueue(limit) {
 }
 $("btnLlmTest").addEventListener("click", async () => {
   const c = llmQueue(1)[0] || S.crops[0];
-  if (!c) { status("llmStatus", "Collect images first.", true); return; }
-  status("llmStatus", "Asking…");
+  if (!c) { status("llmStatus", t("Collect images first."), true); return; }
+  status("llmStatus", t("Asking…"));
   try {
     const r = await llm.ask(llmSettings(), await llm.encodeCrop(await store.getJpeg(c.id)));
-    status("llmStatus", `Works: answered "${r.answer}" for a ${c.roi} image in ${r.seconds.toFixed(1)} s (device read ${c.pred ?? "–"}).`);
+    status("llmStatus", t("Works: answered “{a}” for a {roi} image in {s} s (device read {d}).", { a: r.answer, roi: c.roi, s: r.seconds.toFixed(1), d: c.pred ?? "–" }));
   } catch (e) { status("llmStatus", e.message, true); }
 });
 async function runLlm(limit) {
   const s = llmSettings();
   await store.kvSet("llm", s);
   const q = llmQueue(limit);
-  if (!q.length) { status("llmStatus", "Nothing left to ask about."); return; }
-  status("llmStatus", `Asking about ${q.length} images from ${q.wheels} wheels and ${q.groups} different readings…`);
+  if (!q.length) { status("llmStatus", t("Nothing left to ask about.")); return; }
+  status("llmStatus", t("Asking about {n} images from {w} wheels and {g} different readings…", { n: q.length, w: q.wheels, g: q.groups }));
   const t0 = performance.now();
   let done = 0, failed = 0;
   for (const c of q) {
@@ -567,10 +573,12 @@ async function runLlm(limit) {
       if (failed >= 3 && done === 0) throw e;
     }
     const per = (performance.now() - t0) / 1000 / (done + failed);
-    status("llmStatus", `${done} of ${q.length} labelled${failed ? `, ${failed} failed` : ""}, ${per.toFixed(1)} s each, about ${Math.ceil(((q.length - done - failed) * per) / 60)} min left`);
-    title(`AI labels ${done}/${q.length}`);
+    status("llmStatus", t("{i} of {n} labelled", { i: done, n: q.length }) + (failed ? t(", {n} failed", { n: failed }) : "") +
+      t(", {s} s each, about {m} min left", { s: per.toFixed(1), m: Math.ceil(((q.length - done - failed) * per) / 60) }));
+    title(t("AI labels {i}/{n}", { i: done, n: q.length }));
   }
-  status("llmStatus", `${S.stop ? "Stopped" : "Done"}: ${done} images from ${q.wheels} wheels and ${q.groups} readings labelled by ${s.model}${failed ? `, ${failed} failed` : ""}.`);
+  status("llmStatus", t(S.stop ? "Stopped: {n} images from {w} wheels and {g} readings labelled by {model}" : "Done: {n} images from {w} wheels and {g} readings labelled by {model}",
+    { n: done, w: q.wheels, g: q.groups, model: s.model }) + (failed ? t(", {n} failed", { n: failed }) : "") + ".");
   await refreshProject();
 }
 $("btnLlm").addEventListener("click", async () => {
@@ -657,9 +665,9 @@ function renderGroupBar() {
   const [roi, lab] = (rev.groupKey || "|").split("|");
   const pos = rev.groupKey ? keys.indexOf(rev.groupKey) : -1;
   $("revGroupText").innerHTML = rev.groupKey
-    ? `<b>${esc(roi)}</b> · shown as <b>${esc(lab)}</b> · ${left} of ${rev.list.length} still to check · group ${pos >= 0 ? pos + 1 : "–"} of ${keys.length}${pos < 0 ? " (done)" : ""}`
-    : keys.length ? "" : "Nothing left to review here.";
-  $("revAccept").textContent = lab && lab !== "?" ? `Approve all as ${lab} (${left})` : "Approve all";
+    ? `<b>${esc(roi)}</b> · ${esc(t("shown as"))} <b>${esc(lab)}</b> · ${esc(t("{i} of {n} still to check", { i: left, n: rev.list.length }))} · ${esc(t("group {i} of {n}", { i: pos >= 0 ? pos + 1 : "–", n: keys.length }))}${pos < 0 ? esc(t(" (done)")) : ""}`
+    : keys.length ? "" : esc(t("Nothing left to review here."));
+  $("revAccept").textContent = lab && lab !== "?" ? t("Approve all as {l} ({n})", { l: lab, n: left }) : t("Approve all");
   $("revAccept").disabled = !left || lab === "?" || !lab;
   $("revPrev").disabled = $("revNext").disabled = !keys.length;
 }
@@ -670,7 +678,7 @@ async function acceptRest() {
   await store.putLabels(recs);
   recs.forEach((r, i) => { S.labels.set(r.id, r); S.eff.set(r.id, effective(todo[i], r, S.steady)); });
   scheduleCoverage();
-  status("revStatusLine", `Approved ${todo.length} image${todo.length === 1 ? "" : "s"} of ${rev.groupKey.replace("|", " as ")}.`);
+  { const [roi, lab] = rev.groupKey.split("|"); status("revStatusLine", t("Approved {n} images of {roi} as {l}.", { n: todo.length, roi, l: lab })); }
   gotoGroup(+1);
 }
 
@@ -689,8 +697,8 @@ function renderReview(reset) {
   const g = $("revGrid"); g.textContent = "";
   rev.list.slice(0, rev.shown).forEach((c, k) => g.append(tile(c, k)));
   $("revMore").hidden = rev.shown >= rev.list.length;
-  $("revMore").textContent = `Show more (${rev.list.length - rev.shown} left)`;
-  if (!rev.list.length) g.innerHTML = `<p class="hint">Nothing to show here.</p>`;
+  $("revMore").textContent = t("Show more ({n} left)", { n: rev.list.length - rev.shown });
+  if (!rev.list.length) g.innerHTML = `<p class="hint">${esc(t("Nothing to show here."))}</p>`;
 }
 const tileImages = new IntersectionObserver((entries) => {
   for (const en of entries) {
@@ -712,7 +720,7 @@ function tile(c, k) {
   img.dataset.id = c.id;
   tileImages.observe(img);
   const l = document.createElement("span"); l.className = "l"; l.textContent = e.status === "excluded" ? "x" : (e.label ?? "?");
-  const s = document.createElement("span"); s.className = "s"; s.textContent = `${c.roi} · ${e.sources}`;
+  const s = document.createElement("span"); s.className = "s"; s.textContent = `${c.roi} · ${sourcesText(e.sources)}`;
   t.append(img, l, s);
   t.addEventListener("click", () => select(k));
   return t;
@@ -733,16 +741,17 @@ async function drawer() {
   const e = S.eff.get(c.id), r = S.labels.get(c.id) || {};
   const b = await store.getJpeg(c.id);
   if (b) { const u = URL.createObjectURL(new Blob([b], { type: "image/jpeg" })); $("bigImg").onload = () => URL.revokeObjectURL(u); $("bigImg").src = u; }
-  status("selInfo", `${c.roi}  ${c.ts}  label ${e.status === "excluded" ? "x" : e.label ?? "?"} (${e.sources})  device ${c.pred ?? "–"}${c.rejected ? " rejected" : ""}  AI ${r.llm ?? "–"}`);
+  status("selInfo", t("{roi}  {ts}  label {l} ({src})  device {d}{rej}  AI {ai}", { roi: c.roi, ts: c.ts, l: e.status === "excluded" ? "x" : e.label ?? "?",
+    src: sourcesText(e.sources), d: c.pred ?? "–", rej: c.rejected ? t(" rejected") : "", ai: r.llm ?? "–" }));
   const keys = $("keys"); keys.textContent = "";
   [...LABELS, "x"].forEach((l, i) => {
     if (i === 10 || i === 20) { const sp = document.createElement("span"); sp.className = "sep"; keys.append(sp); }
-    const bt = document.createElement("button"); bt.type = "button"; bt.textContent = l === "x" ? "X unusable" : l;
+    const bt = document.createElement("button"); bt.type = "button"; bt.textContent = l === "x" ? t("X unusable") : l;
     if ((r.human || (e.status !== "excluded" && e.label)) === l || (l === "x" && e.status === "excluded")) bt.classList.add("on");
     bt.addEventListener("click", () => setHuman(c, l));
     keys.append(bt);
   });
-  const rm = document.createElement("button"); rm.type = "button"; rm.textContent = "Remove my label"; rm.disabled = !r.human;
+  const rm = document.createElement("button"); rm.type = "button"; rm.textContent = t("Remove my label"); rm.disabled = !r.human;
   rm.addEventListener("click", () => setHuman(c, null)); keys.append(rm);
 }
 async function setHuman(c, l) {
@@ -758,7 +767,7 @@ async function setHuman(c, l) {
   if ($("revGuided").checked) {
     renderGroupBar();
     if (l !== null && !rev.list.some(stillOpen)) {
-      status("revStatusLine", `${rev.groupKey.replace("|", " · ")} done.`);
+      status("revStatusLine", t("{group} done.", { group: rev.groupKey.replace("|", " · ") }));
       setTimeout(() => gotoGroup(+1), 500);
     }
   }
@@ -793,7 +802,7 @@ document.addEventListener("keydown", (e) => {
   if (k === "ArrowLeft" || k === "ArrowUp") { e.preventDefault(); select(Math.max(0, rev.sel - 1)); return; }
   if (!c) return;
   if (k === "Escape") { $("drawer").hidden = true; return; }
-  if (k === "t" || k === "T") { rev.tPending = true; status("selInfo", "Between two digits: press the lower one (T 6 = 6/7)"); return; }
+  if (k === "t" || k === "T") { rev.tPending = true; status("selInfo", t("Between two digits: press the lower one (T 6 = 6/7)")); return; }
   if (/^[0-9]$/.test(k)) { e.preventDefault(); const l = rev.tPending ? `${k}/${(+k + 1) % 10}` : k; rev.tPending = false; setHuman(c, l).then(next); return; }
   if (k === "x" || k === "X") { setHuman(c, "x").then(next); return; }
   if (k === "Enter") { const lab = S.eff.get(c.id).label; if (lab) setHuman(c, lab).then(next); return; }
@@ -804,12 +813,13 @@ document.addEventListener("keydown", (e) => {
 let trainCtx = { epochs: 1, history: [], phase: 0, phases: 1, label: "" };
 function onTrainProgress(m) {
   const frac = (trainCtx.phase + (m.epoch + m.step / m.steps) / trainCtx.epochs) / trainCtx.phases;
-  setBar("trainBar", frac); title(`${Math.round(frac * 100)}% training`);
+  setBar("trainBar", frac); title(t("{p}% training", { p: Math.round(frac * 100) }));
 }
 function onEpoch(e) {
   trainCtx.history.push(e); drawChart();
-  status("trainStatus", `${trainCtx.label}Epoch ${e.epoch + 1}/${e.epochs}  loss ${e.loss.toFixed(3)}  validation loss ${e.valLoss.toFixed(3)}  ` +
-    `validation accuracy ${(e.valAcc * 100).toFixed(1)}%  ${e.seconds.toFixed(1)} s/epoch  about ${Math.ceil((((e.epochs - e.epoch - 1) + (trainCtx.phases - trainCtx.phase - 1) * e.epochs) * e.seconds) / 60)} min left`);
+  status("trainStatus", trainCtx.label + t("Epoch {i}/{n}  loss {l}  validation loss {vl}  validation accuracy {va}%  {s} s/epoch  about {m} min left", {
+    i: e.epoch + 1, n: e.epochs, l: e.loss.toFixed(3), vl: e.valLoss.toFixed(3), va: (e.valAcc * 100).toFixed(1), s: e.seconds.toFixed(1),
+    m: Math.ceil((((e.epochs - e.epoch - 1) + (trainCtx.phases - trainCtx.phase - 1) * e.epochs) * e.seconds) / 60) }));
 }
 function drawChart() {
   const c = $("chart"), h = trainCtx.history;
@@ -846,21 +856,21 @@ async function runTrain() {
   const includeUnconfirmed = $("useUnconfirmed").checked, final = $("finalAll").checked;
   const set = buildTrainSet(S.crops, S.eff, { includeUnconfirmed });
   tlog(`buildTrainSet train ${set.trainIdx.length} test ${set.testIdx.length}`, tb);
-  if (set.trainIdx.length < 200) throw new Error(`only ${set.trainIdx.length} usable training images; collect or label more first`);
+  if (set.trainIdx.length < 200) throw new Error(t("only {n} usable training images; collect or label more first", { n: set.trainIdx.length }));
   const [filters, dense] = parseSize($("size").value);
   const epochs = +$("epochs").value || 60;
   const t0 = performance.now();
   // 1. train without the test images, to compare with the installed model on them
-  trainCtx = { epochs, history: [], phase: 0, phases: final ? 2 : 1, label: final ? "Step 1 of 2 (for the comparison): " : "" };
-  status("trainStatus", `${trainCtx.label}training on ${set.trainIdx.length.toLocaleString()} images, testing on ${set.testIdx.length.toLocaleString()} from each wheel’s newest days…`);
+  trainCtx = { epochs, history: [], phase: 0, phases: final ? 2 : 1, label: final ? t("Step 1 of 2 (for the comparison): ") : "" };
+  status("trainStatus", trainCtx.label + t("training on {n} images, testing on {m} from each wheel’s newest days…", { n: set.trainIdx.length.toLocaleString(), m: set.testIdx.length.toLocaleString() }));
   const res = await trainOnce(set, filters, dense, epochs);
   S.set = set; S.compare = compareOnTest(set, res.probs);
   let calib = set.trainIdx.slice(0, 300), kept = res.bestEpoch, trainN = set.trainIdx.length;
   // 2. the model to install: the same recipe on every usable image, the test images included
   if (final && !S.stop) {
     const all = buildTrainSet(S.crops, S.eff, { includeUnconfirmed, all: true });
-    trainCtx = { ...trainCtx, phase: 1, label: "Step 2 of 2 (final model, all images): " };
-    status("trainStatus", `${trainCtx.label}training on ${all.trainIdx.length.toLocaleString()} images…`);
+    trainCtx = { ...trainCtx, phase: 1, label: t("Step 2 of 2 (final model, all images): ") };
+    status("trainStatus", trainCtx.label + t("training on {n} images…", { n: all.trainIdx.length.toLocaleString() }));
     const res2 = await trainOnce(all, filters, dense, epochs);
     calib = all.trainIdx.slice(0, 300); kept = res2.bestEpoch; trainN = all.trainIdx.length;
   }
@@ -877,7 +887,8 @@ async function runTrain() {
   S.model = { name, bytes, at: Date.now(), acc: tot.n ? tot.m / tot.n : null, compareN: tot.dn, final: final && !S.stop, trainN,
     accOnDev: fair ? tot.md / tot.dn : null, devAcc: fair ? tot.d / tot.dn : null };
   await store.kvSet("lastModel", S.model);
-  status("trainStatus", `Done in ${((performance.now() - t0) / 60000).toFixed(1)} min (kept epoch ${kept + 1}). Model ${(bytes.length / 1024).toFixed(0)} KB, trained on ${trainN.toLocaleString()} images${S.model.final ? ", the test images included" : ""}.`);
+  status("trainStatus", t("Done in {m} min (kept epoch {e}). Model {kb} KB, trained on {n} images", { m: ((performance.now() - t0) / 60000).toFixed(1), e: kept + 1, kb: (bytes.length / 1024).toFixed(0), n: trainN.toLocaleString() }) +
+    (S.model.final ? t(", the test images included") : "") + ".");
   renderCompare(); renderModel();
   return S.model;
 }
@@ -893,17 +904,17 @@ function renderCompare() {
     `<td class="${cls(e.dev, e.devN)}">${pct(e.dev, e.devN)}</td><td>${e.t}</td><td>${pct(e.tModel, e.t)}</td></tr>`).join("");
   const m = S.model;
   $("evalTable").innerHTML = `<table><thead><tr>${th("Wheel", HINT.wheel)}${th("Test images", HINT.testImages)}${th("New model", HINT.newModel)}${th("Device now", HINT.deviceNow)}${th("Between digits", HINT.between)}${th("New model", HINT.newModelBetween)}</tr></thead><tbody>${rows}</tbody></table>
-    <p class="hint">Test images are each wheel’s newest days and were not used for this comparison. "Device now" is what the installed model read on the same images.${
-      m?.final ? " The model to install was then trained again on all images, the test images included, so it has seen more than the one scored here." : ""} ${
-      m?.devAcc != null ? `On the ${m.compareN} test images the device read itself: new ${(m.accOnDev * 100).toFixed(1)}%, installed ${(m.devAcc * 100).toFixed(1)}%. Where the label came from the device, the installed model's score is flattered.`
-        : `Only ${m?.compareN ?? 0} test image${(m?.compareN ?? 0) === 1 ? " was" : "s were"} read by the device (${MIN_COMPARE} needed), so the two models are not compared; collect more days.`}</p>`;
+    <p class="hint">${esc(t("Test images are each wheel’s newest days and were not used for this comparison. “Device now” is what the installed model read on the same images."))}${
+      m?.final ? " " + esc(t("The model to install was then trained again on all images, the test images included, so it has seen more than the one scored here.")) : ""} ${
+      esc(m?.devAcc != null ? t("On the {n} test images the device read itself: new {a}%, installed {b}%. Where the label came from the device, the installed model’s score is flattered.", { n: m.compareN, a: (m.accOnDev * 100).toFixed(1), b: (m.devAcc * 100).toFixed(1) })
+        : t("Only {n} test images were read by the device ({min} needed), so the two models are not compared; collect more days.", { n: m?.compareN ?? 0, min: MIN_COMPARE }))}</p>`;
   const v = verdictOf(m);
   pill("trainPill", m ? { better: "new model ready", worse: "not better", unknown: "not compared" }[v] : "–", m ? { better: "ok", worse: "warn", unknown: "" }[v] : "");
 }
 $("btnTrain").addEventListener("click", async () => {
   if (!busy("training", "trainStatus")) return;
   $("btnTrain").disabled = true; $("btnStop").disabled = false;
-  try { await runTrain(); } catch (e) { status("trainStatus", `Training failed: ${e.message}`, true); }
+  try { await runTrain(); } catch (e) { status("trainStatus", t("Training failed: {err}", { err: e.message }), true); }
   finally { idle(); $("btnTrain").disabled = false; $("btnStop").disabled = true; }
 });
 $("btnStop").addEventListener("click", () => { S.stop = true; worker.postMessage({ type: "stop" }); });
@@ -913,7 +924,7 @@ function renderModel() {
   const m = S.model;
   $("btnInstall").disabled = !m || !S.onDevice; $("btnDownload").disabled = !m;
   if (m) $("fname").value = m.name;
-  pill("installPill", m ? `model of ${new Date(m.at).toLocaleString()}` : "no model yet", m ? "" : "");
+  pill("installPill", m ? "model of {date}" : "no model yet", "", { date: m ? new Date(m.at).toLocaleString() : "" });
 }
 $("btnDownload").addEventListener("click", () => {
   const m = S.model; if (!m) return;
@@ -925,15 +936,15 @@ $("btnDownload").addEventListener("click", () => {
 $("btnInstall").addEventListener("click", () => {
   const m = S.model;
   const cur = S.cfg ? getKey(S.cfg, "Digits", "Model")?.value : "?";
-  $("installConfirmText").textContent = `Replace ${cur} with ${$("fname").value.trim() || m.name}? The device restarts once.` +
-    (m.devAcc != null ? ` Test images: new ${(m.accOnDev * 100).toFixed(1)}%, current ${(m.devAcc * 100).toFixed(1)}%.` : " The models were not compared (too few test images from this device).");
+  $("installConfirmText").textContent = t("Replace {cur} with {new}? The device restarts once.", { cur, new: $("fname").value.trim() || m.name }) + " " +
+    (m.devAcc != null ? t("Test images: new {a}%, current {b}%.", { a: (m.accOnDev * 100).toFixed(1), b: (m.devAcc * 100).toFixed(1) }) : t("The models were not compared (too few test images from this device)."));
   $("installConfirm").hidden = false;
 });
 $("btnInstallNo").addEventListener("click", () => { $("installConfirm").hidden = true; });
 $("btnInstallYes").addEventListener("click", async () => {
   $("installConfirm").hidden = true;
   if (!busy("install", "installStatus")) return;
-  try { await runInstall(); } catch (e) { status("installStatus", `Install did not complete: ${e.message}`, true); }
+  try { await runInstall(); } catch (e) { status("installStatus", t("Install did not complete: {err}", { err: e.message }), true); }
   finally { idle(); refreshSetup(); }
 });
 
@@ -941,10 +952,10 @@ async function runInstall() {
   const m = S.model;
   const name = ($("fname").value.trim() || m.name).replace(/[^\w.-]/g, "_");
   const path = `/config/${name.endsWith(".tflite") ? name : `${name}.tflite`}`;
-  logHead("installStatus", `Install ${path}`);
-  status("installStatus", `Uploading the model (${(m.bytes.length / 1024).toFixed(0)} KB)…`);
+  logHead("installStatus", t("Install {file}", { file: path }));
+  status("installStatus", t("Uploading the model ({kb} KB)…", { kb: (m.bytes.length / 1024).toFixed(0) }));
   await dev.upload(path, m.bytes);
-  status("installStatus", "Model uploaded and checked (MD5).");
+  status("installStatus", t("Model uploaded and checked (MD5)."));
   const cfg = await dev.readConfig();
   const prev = getKey(cfg, "Digits", "Model")?.value;
   const backup = await dev.writeConfigAndReboot(setKey(cfg, "Digits", "Model", path), (s) => status("installStatus", s));
@@ -953,27 +964,27 @@ async function runInstall() {
   const hist = await store.kvGet("installs", []);
   hist.push({ at: Date.now(), model: path, prev, backup });
   await store.kvSet("installs", hist);
-  status("installStatus", `Installed. First reading with ${path}: ${first?.value} (${first?.error}). Previous model: ${prev}; configuration copy: ${backup}.`);
+  status("installStatus", t("Installed. First reading with {file}: {v} ({err}). Previous model: {prev}; configuration copy: {backup}.", { file: path, v: first?.value, err: first?.error, prev, backup }));
   pill("installPill", "installed", first?.error === "no error" ? "ok" : "warn");
   showUndo();
 }
 async function showUndo() {
   const last = (await store.kvGet("installs", [])).at(-1);
   $("btnUndo").hidden = !last || !S.onDevice;
-  if (last) $("btnUndo").textContent = `Go back to ${last.prev.split("/").pop()}`;
+  if (last) $("btnUndo").textContent = t("Go back to {file}", { file: last.prev.split("/").pop() });
 }
 $("btnUndo").addEventListener("click", async () => {
   if (!busy("undo", "installStatus")) return;
   try {
     const hist = await store.kvGet("installs", []);
     const last = hist.at(-1);
-    logHead("installStatus", `Go back to ${last.prev}`);
+    logHead("installStatus", t("Go back to {file}", { file: last.prev }));
     const cfg = await dev.readConfig();
     await dev.writeConfigAndReboot(setKey(cfg, "Digits", "Model", last.prev), (s) => status("installStatus", s));
     const v = await dev.waitForReading((s) => status("installStatus", s));
     hist.pop(); await store.kvSet("installs", hist);
-    status("installStatus", `Back on ${last.prev}. Reading: ${Object.values(v)[0]?.value}.`);
-  } catch (e) { status("installStatus", `Undo did not complete: ${e.message}`, true); }
+    status("installStatus", t("Back on {file}. Reading: {v}.", { file: last.prev, v: Object.values(v)[0]?.value }));
+  } catch (e) { status("installStatus", t("Undo did not complete: {err}", { err: e.message }), true); }
   finally { idle(); showUndo(); refreshSetup(); }
 });
 
@@ -985,23 +996,23 @@ $("btnAuto").addEventListener("click", async () => {
   try {
     if (S.onDevice) {
       await refreshSetup();
-      if (S.checks.some((c) => c.level === "block")) throw new Error("fix the device setup in step 1 first");
-      say("Step 2: collecting new images…"); await runCollect();
+      if (S.checks.some((c) => c.level === "block")) throw new Error(t("fix the device setup in step 1 first"));
+      say(t("Step 2: collecting new images…")); await runCollect();
     }
     if (S.stop) throw new Error("stopped");
-    if ($("autoLlm").checked) { say("Step 3: asking the AI server for labels…"); await runLlm(+$("autoLlmN").value || 200); }
+    if ($("autoLlm").checked) { say(t("Step 3: asking the AI server for labels…")); await runLlm(+$("autoLlmN").value || 200); }
     if (S.stop) throw new Error("stopped");
-    if (S.cov.verdict === "blocked") throw new Error("no images to train on");
-    say(`Step 4: training${S.cov.verdict === "not-enough" ? " (with less data than recommended)" : ""}…`);
+    if (S.cov.verdict === "blocked") throw new Error(t("no images to train on"));
+    say(t(S.cov.verdict === "not-enough" ? "Step 4: training (with less data than recommended)…" : "Step 4: training…"));
     const m = await runTrain();
     if (S.stop) throw new Error("stopped");
     const v = verdictOf(m);
-    if (v === "worse") { say(`Finished. On the same test images the new model read ${(m.accOnDev * 100).toFixed(1)}%, the installed one ${(m.devAcc * 100).toFixed(1)}%: not installed.`); return; }
-    if (v === "unknown") { say(`Finished. Too few test images from this device to compare with the installed model (${m.compareN} of ${MIN_COMPARE}), so it was not installed automatically. Install it in step 5 if you want.`); return; }
-    if (!$("autoInstall").checked || !S.onDevice) { say("Finished. The new model is ready to install in step 5."); return; }
-    say("Step 5: installing the new model…"); await runInstall();
-    say("Finished: the new model is installed and reading.");
-  } catch (e) { say(`Automatic run stopped: ${e.message}`, e.message !== "stopped"); }
+    if (v === "worse") { say(t("Finished. On the same test images the new model read {a}%, the installed one {b}%: not installed.", { a: (m.accOnDev * 100).toFixed(1), b: (m.devAcc * 100).toFixed(1) })); return; }
+    if (v === "unknown") { say(t("Finished. Too few test images from this device to compare with the installed model ({n} of {min}), so it was not installed automatically. Install it in step 5 if you want.", { n: m.compareN, min: MIN_COMPARE })); return; }
+    if (!$("autoInstall").checked || !S.onDevice) { say(t("Finished. The new model is ready to install in step 5.")); return; }
+    say(t("Step 5: installing the new model…")); await runInstall();
+    say(t("Finished: the new model is installed and reading."));
+  } catch (e) { say(t("Automatic run stopped: {err}", { err: e.message === "stopped" ? t("stopped") : e.message }), e.message !== "stopped"); }
   finally { idle(); $("btnAuto").disabled = false; $("btnAutoStop").disabled = true; }
 });
 $("btnAutoStop").addEventListener("click", () => { S.stop = true; worker.postMessage({ type: "stop" }); });
@@ -1019,23 +1030,41 @@ function staticHints() {
   if (lg[0]) { lg[0].dataset.hint = HINT.trainLoss; lg[0].tabIndex = 0; }
   if (lg[1]) { lg[1].dataset.hint = HINT.valLoss; lg[1].tabIndex = 0; }
 }
+const SIZE_NAMES = {
+  "24,48,48|128,64": "Small · {m} M ops/digit",
+  "32,64,64|128,64": "Medium · {m} M ops/digit",
+  "64,128,64|256,64": "Large · {m} M ops/digit (slow on the device)",
+};
+/** Label sources as shown on tiles: "device + LLM", "device 3 vs LLM 5", ... */
+function sourcesText(src) {
+  const m = /^device (\S+) vs LLM (\S+)$/.exec(src || "");
+  return m ? t("device {a} vs AI {b}", { a: m[1], b: m[2] }) : t(src || "");
+}
+/** Small switch in the header: shows the other language's name, reloads in it. */
+function langSwitch() {
+  const other = LANG === "ru" ? "en" : "ru";
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "link lang"; b.lang = other; b.textContent = LANGS[other];
+  b.addEventListener("click", () => { if (!S.busy || confirm(t("Switching the language reloads the page and stops “{task}”. Continue?", { task: S.busy }))) setLang(other); });
+  document.querySelector("header .badges").append(b);
+}
 async function init() {
-  initHints(); staticHints();
+  initHints(); staticHints(); langSwitch();
   show(location.hash.slice(1) || "start");
   for (const o of $("size").options) {
     const [f, d] = parseSize(o.value);
-    o.textContent = o.textContent.replace(/[\d.]+ M ops/, `${(countMacs({ filters: f, dense: d }) / 1e6).toFixed(1)} M ops`);
+    o.textContent = t(SIZE_NAMES[o.value] || "{m} M ops/digit", { m: (countMacs({ filters: f, dense: d }) / 1e6).toFixed(1) });
   }
   const ready = once("ready"); worker.postMessage({ type: "init" });
-  ready.then(({ backend }) => { $("bBackend").textContent = backend === "webgl" ? "GPU (WebGL)" : "CPU only: training will be slow"; });
+  ready.then(({ backend }) => { $("bBackend").textContent = backend === "webgl" ? "GPU (WebGL)" : t("CPU only: training will be slow"); });
   const d = await dev.detect();
   S.onDevice = d.ok;
-  $("bDevice").textContent = d.ok ? `device ${location.host} · ${d.status}` : "not on a device";
+  $("bDevice").textContent = d.ok ? t("device {host} · {status}", { host: location.host, status: d.status }) : t("not on a device");
   if (d.ok) {
     dev.readConfig().catch(() => "").then(dev.meterName).then((name) => {
       if (!name) return;
       $("meterName").textContent = name; $("meterName").hidden = false;
-      document.title = `${name} · Meter Model Trainer`;
+      document.title = `${name} · ${baseTitle}`;
     });
   }
   await loadLlmSettings();

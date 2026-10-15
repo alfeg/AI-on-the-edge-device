@@ -5,6 +5,7 @@
 //   images/...   the crop JPEGs, any size (resized here to the model input)
 import { unzip } from "fflate";
 import { resizeBilinear } from "./resize.js";
+import { t } from "./i18n.js";
 
 export const IN_H = 32, IN_W = 20, IN_C = 3, PIX = IN_H * IN_W * IN_C;
 
@@ -50,7 +51,7 @@ const unzipAsync = (buf) => new Promise((res, rej) => unzip(buf, (e, files) => (
 export async function loadDatasetZip(bytes, decode, onProgress = () => {}) {
   const files = await unzipAsync(bytes);
   const csv = files["labels.csv"];
-  if (!csv) throw new Error("labels.csv is missing from the zip");
+  if (!csv) throw new Error(t("labels.csv is missing from the zip"));
   const all = parseCsv(new TextDecoder().decode(csv)).filter((r) => r.label && r.label !== "x");
   const rows = [];
   const X = new Uint8Array(all.length * PIX);

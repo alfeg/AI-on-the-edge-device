@@ -356,7 +356,7 @@ th[data-hint], .legend span[data-hint] { text-decoration: underline dotted var(-
           <label class="f" for="llmKey">API key <input type="password" id="llmKey" placeholder="not needed for Ollama" autocomplete="off"></label>
           <button class="act" id="btnLlmTest">Test with one image</button>
         </div>
-        <p class="hint">Ollama has to allow this page: start it with <code>OLLAMA_ORIGINS=<span class="origin"></span></code> (and <code>OLLAMA_HOST=0.0.0.0</code> when it runs on another computer). With an online service, the images you label are sent to it, and the key is stored in this browser.</p>
+        <p class="hint" data-i18n="ollamaHint">Ollama has to allow this page: start it with <code>OLLAMA_ORIGINS=<span class="origin"></span></code> (and <code>OLLAMA_HOST=0.0.0.0</code> when it runs on another computer). With an online service, the images you label are sent to it, and the key is stored in this browser.</p>
         <p class="hint">The images are spread over all wheels and readings: readings with the fewest usable labels go first, then one image per reading in turn, from different days. Disagreements are asked about before unconfirmed images.</p>
         <div class="row">
           <label class="f" for="llmN">Images to label <input type="number" id="llmN" value="200" min="1" step="10"></label>
@@ -380,7 +380,7 @@ th[data-hint], .legend span[data-hint] { text-decoration: underline dotted var(-
       <label class="f" for="revStatus">Show <select id="revStatus">
         <option value="review">Needs review</option><option value="conflict">Disagreements</option><option value="unapproved">Not approved by you</option><option value="usable">Usable</option><option value="human">Labelled by you</option><option value="all">All</option></select></label>
     </div>
-    <p class="hint">Click an image, then: <b>0–9</b> digit · <b>T</b> then a digit for between two digits (T 6 = 6/7) · <b>X</b> unusable · <b>Backspace</b> remove your label · <b>← →</b> move · <b>Enter</b> accept the shown label. Group by group: fix the wrong ones, then <b>A</b> approves all the others as shown and moves on · <b>[ ]</b> previous / next group.</p>
+    <p class="hint" data-i18n="reviewKeys">Click an image, then: <b>0–9</b> digit · <b>T</b> then a digit for between two digits (T 6 = 6/7) · <b>X</b> unusable · <b>Backspace</b> remove your label · <b>← →</b> move · <b>Enter</b> accept the shown label. Group by group: fix the wrong ones, then <b>A</b> approves all the others as shown and moves on · <b>[ ]</b> previous / next group.</p>
     <div class="grid" id="revGrid" role="listbox" aria-label="Images to review"></div>
     <div class="row"><button id="revMore" hidden>Show more</button></div>
     <div class="more"><button class="link act" id="btnExportZip2" type="button">Export dataset (zip with images)</button><button class="link act" id="btnExportCsv2" type="button">Export labels (CSV)</button></div>
@@ -420,7 +420,7 @@ th[data-hint], .legend span[data-hint] { text-decoration: underline dotted var(-
     <div class="confirm" id="installConfirm" hidden><span id="installConfirmText"></span><button class="primary" id="btnInstallYes">Install</button><button id="btnInstallNo">Cancel</button></div>
     <ol class="log" id="installStatus" hidden aria-live="polite"></ol>
     <div class="more"><button class="link act" id="btnUndo" type="button" hidden>Go back to the previous model</button></div>
-    <p class="hint">Installing uploads the model to <code>/config/</code>, saves a copy of the configuration next to it, switches the digit model right after a reading round and restarts the device, then waits for its first reading. The previous model file stays on the card.</p>
+    <p class="hint" data-i18n="installHint">Installing uploads the model to <code>/config/</code>, saves a copy of the configuration next to it, switches the digit model right after a reading round and restarts the device, then waits for its first reading. The previous model file stays on the card.</p>
   </section>
 </div>
 

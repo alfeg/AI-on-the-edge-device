@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rebuild the Iosevka Extended subset in src/fonts/ (needs Python with fonttools + brotli:
+# Rebuild the Iosevka Extended subset (Latin-1 + Cyrillic) in src/fonts/ (needs fonttools + brotli:
 #   pip install fonttools brotli). Keeps Latin-1, general punctuation, arrows and every
 # other non-ASCII character used in index.html / src/*.js; drops ligatures and hinting.
 #
@@ -16,7 +16,7 @@ import pathlib
 txt = pathlib.Path("index.html").read_text(encoding="utf-8") + "".join(p.read_text(encoding="utf-8") for p in pathlib.Path("src").glob("*.js"))
 pathlib.Path("src/fonts/.chars.txt").write_text("".join(sorted({c for c in txt if ord(c) > 126})), encoding="utf-8")
 EOF
-UNI="U+0020-007E,U+00A0-00FF,U+2010-2027,U+2030-203A,U+2190-2199,U+21BB,U+2212,U+2215,U+2318"
+UNI="U+0020-007E,U+00A0-00FF,U+0400-045F,U+2116,U+2010-2027,U+2030-203A,U+2190-2199,U+21BB,U+2212,U+2215,U+2318"
 for pair in "400 Iosevka-Extended" "600 Iosevka-ExtendedSemiBold"; do
   set -- $pair
   "$PY" -m fontTools.subset "$TTF/$2.ttf" --unicodes="$UNI" --text-file=src/fonts/.chars.txt \

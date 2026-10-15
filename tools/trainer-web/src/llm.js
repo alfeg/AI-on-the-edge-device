@@ -3,6 +3,7 @@
 //   openai  POST {url}/v1/chat/completions     (OpenAI, LM Studio, llama.cpp server, vLLM, ...)
 // Answers are one vote in labels.js, never the final word: models that read slow wheels
 // well can still be poor on a rolling last wheel.
+import { t } from "./i18n.js";
 
 export const PROMPT =
   "This is a crop of ONE digit wheel of a mechanical rolling meter counter. " +
@@ -51,7 +52,7 @@ export async function ask(settings, b64, timeoutMs = 120000) {
           messages: [{ role: "user", content: PROMPT, images: [b64] }],
           options: { temperature: 0, num_predict: 1500 } }),
       });
-      if (!r.ok) throw new Error(`Ollama answered HTTP ${r.status}: ${(await r.text()).slice(0, 160)}`);
+      if (!r.ok) throw new Error(t("Ollama answered HTTP {status}: {body}", { status: r.status, body: (await r.text()).slice(0, 160) }));
       raw = (await r.json()).message?.content || "";
     } else {
       const headers = { "Content-Type": "application/json" };
@@ -63,12 +64,12 @@ export async function ask(settings, b64, timeoutMs = 120000) {
             { type: "text", text: PROMPT },
             { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } }] }] }),
       });
-      if (!r.ok) throw new Error(`Server answered HTTP ${r.status}: ${(await r.text()).slice(0, 160)}`);
+      if (!r.ok) throw new Error(t("Server answered HTTP {status}: {body}", { status: r.status, body: (await r.text()).slice(0, 160) }));
       raw = (await r.json()).choices?.[0]?.message?.content || "";
     }
     return { answer: parseAnswer(raw), raw: raw.slice(0, 80), seconds: (performance.now() - t0) / 1000 };
   } catch (e) {
-    if (e.name === "AbortError") throw new Error(`no answer within ${timeoutMs / 1000} s`);
+    if (e.name === "AbortError") throw new Error(t("no answer within {n} s", { n: timeoutMs / 1000 }));
     if (e instanceof TypeError) throw new Error(blockedHint(settings));
     throw e;
   } finally {
@@ -80,12 +81,9 @@ export async function ask(settings, b64, timeoutMs = 120000) {
 export function blockedHint(s) {
   const origin = location.origin;
   if (s.provider === "ollama") {
-    return `The browser could not reach Ollama at ${s.url}. Start Ollama with OLLAMA_ORIGINS=${origin} ` +
-      `(or *) set, and OLLAMA_HOST=0.0.0.0 if it runs on another computer; then restart Ollama. ` +
-      `Chrome may also ask to allow access to devices on your local network.`;
+    return t("The browser could not reach Ollama at {url}. Start Ollama with OLLAMA_ORIGINS={origin} (or *) set, and OLLAMA_HOST=0.0.0.0 if it runs on another computer; then restart Ollama. Chrome may also ask to allow access to devices on your local network.", { url: s.url, origin });
   }
-  return `The browser could not reach ${s.url}. The server must allow requests from ${origin} (CORS); ` +
-    `in LM Studio enable "CORS", for llama.cpp server start it with --cors-origin or similar.`;
+  return t("The browser could not reach {url}. The server must allow requests from {origin} (CORS); in LM Studio enable “CORS”, for llama.cpp server start it with --cors-origin or similar.", { url: s.url, origin });
 }
 
 /** List models (Ollama /api/tags or /v1/models) to fill the model picker. */
