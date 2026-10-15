@@ -170,10 +170,11 @@ function renderCoverage() {
   const c = S.cov;
   if (!c.rois.length) { $("coverage").innerHTML = `<p class="hint">No images yet. Collect them in step 2.</p>`; status("verdict", ""); pill("labelsPill", "–"); return; }
   const head = `<tr><th>Wheel</th><th>Images</th><th>Days</th><th>Usable</th><th>To review</th>${LABELS.map((l) => `<th>${l}</th>`).join("")}</tr>`;
-  const body = c.rois.map((g) => `<tr><td>${esc(g.roi)}${g.rolling ? " ↻" : ""}</td><td>${g.crops}</td><td>${g.days}</td><td>${g.usable}</td><td>${g.review}</td>${
-    LABELS.map((l, i) => { const n = g.labels[l]; const need = i < 10 || g.rolling; return `<td class="${!need ? "" : n === 0 ? "lo" : n < 15 ? "mid" : ""}">${n}</td>`; }).join("")}</tr>`).join("");
+  const cell = (roi, l, n, cls = "") => (n ? `<td class="cov ${cls}" tabindex="0" data-roi="${esc(roi)}" data-l="${esc(l)}">${n}</td>` : `<td class="${cls}">${n}</td>`);
+  const body = c.rois.map((g) => `<tr><td>${esc(g.roi)}${g.rolling ? " ↻" : ""}</td><td>${g.crops}</td><td>${g.days}</td>${cell(g.roi, "*usable", g.usable)}${cell(g.roi, "*review", g.review)}${
+    LABELS.map((l, i) => { const n = g.labels[l]; const need = i < 10 || g.rolling; return cell(g.roi, l, n, !need ? "" : n === 0 ? "lo" : n < 15 ? "mid" : ""); }).join("")}</tr>`).join("");
   $("coverage").innerHTML = `<table><thead>${head}</thead><tbody>${body}</tbody></table>
-    <p class="hint">Usable images per label (your labels and confirmed ones). ↻ = a rolling wheel that often stops between two digits, so its in-between positions are needed too.</p>`;
+    <p class="hint">Usable images per label (your labels and confirmed ones). Point at a number to see examples; click it to review exactly those images. ↻ = a rolling wheel that often stops between two digits, so its in-between positions are needed too.</p>`;
   if (c.verdict === "ready") { pill("labelsPill", "ready to train", "ok"); status("verdict", `Enough data: every digit has at least ${MIN_PER_DIGIT} usable images over ${c.days} days.`); }
   else if (c.verdict === "not-enough") {
     pill("labelsPill", "not enough yet", "warn");
@@ -181,6 +182,73 @@ function renderCoverage() {
       "Collect more days, or label images in the review below. You can still train, with weaker results.");
   }
 }
+
+// ---------------------------------------------------------------- coverage popover
+const POP_N = 12;
+let pop = { cell: null, urls: [], timer: 0 };
+function spreadPick(list, n) {
+  if (list.length <= n) return list;
+  const out = [], step = list.length / n;
+  for (let i = 0; i < n; i++) out.push(list[Math.floor(i * step + step / 2)]);
+  return out;
+}
+function hidePop() {
+  clearTimeout(pop.timer); pop.cell = null; $("covPop").hidden = true;
+  pop.urls.forEach((u) => URL.revokeObjectURL(u)); pop.urls = [];
+}
+async function showPop(cell) {
+  if (pop.cell === cell) return;
+  hidePop(); pop.cell = cell;
+  const { roi, l } = cell.dataset;
+  const list = cellCrops(roi, l).sort((a, b) => (a.ts < b.ts ? -1 : 1));
+  const pick = spreadPick(list, POP_N);
+  const what = l === "*usable" ? "usable" : l === "*review" ? "to review" : `labelled ${l}`;
+  const el = $("covPop");
+  el.innerHTML = `<div class="ph">${esc(roi)} · ${what} · ${list.length} image${list.length === 1 ? "" : "s"}${list.length > POP_N ? `, ${POP_N} shown` : ""}</div><div class="pg"></div><div class="pf">Click the number to review them</div>`;
+  const grid = el.querySelector(".pg");
+  for (const c of pick) {
+    const fig = document.createElement("figure");
+    const img = document.createElement("img"); img.alt = "";
+    const cap = document.createElement("figcaption");
+    const e = S.eff.get(c.id);
+    cap.textContent = l.startsWith("*") ? (e.label ?? "?") : `${c.ts.slice(6, 8)}.${c.ts.slice(4, 6)} ${c.ts.slice(9, 11)}:${c.ts.slice(11, 13)}`;
+    fig.append(img, cap); grid.append(fig);
+    store.getJpeg(c.id).then((b) => {
+      if (!b || pop.cell !== cell) return;
+      const u = URL.createObjectURL(new Blob([b], { type: "image/jpeg" })); pop.urls.push(u); img.src = u;
+    });
+  }
+  // place next to the cell, kept inside the window
+  el.hidden = false;
+  const r = cell.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight;
+  let x = r.left + r.width / 2 - w / 2, y = r.bottom + 6;
+  if (y + h > innerHeight - 8) y = r.top - h - 6;
+  x = Math.max(8, Math.min(innerWidth - w - 8, x));
+  el.style.left = `${x}px`; el.style.top = `${Math.max(8, y)}px`;
+}
+$("coverage").addEventListener("mouseover", (e) => {
+  const cell = e.target.closest("td.cov"); if (!cell) return;
+  clearTimeout(pop.timer); pop.timer = setTimeout(() => showPop(cell), 120);
+});
+$("coverage").addEventListener("mouseout", (e) => {
+  if (e.relatedTarget?.closest?.("td.cov") === pop.cell) return;
+  clearTimeout(pop.timer); pop.timer = setTimeout(hidePop, 150);
+});
+$("coverage").addEventListener("focusin", (e) => { const cell = e.target.closest("td.cov"); if (cell) showPop(cell); });
+$("coverage").addEventListener("focusout", () => hidePop());
+// click (or Enter): review exactly these images
+function openCell(cell) {
+  const { roi, l } = cell.dataset;
+  hidePop();
+  $("revRoi").value = roi;
+  $("revLabel").value = l.startsWith("*") ? "" : l;
+  $("revStatus").value = l === "*review" ? "review" : "usable";
+  renderReview(true);
+  document.querySelector("#sLabels h3").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+$("coverage").addEventListener("click", (e) => { const cell = e.target.closest("td.cov"); if (cell) openCell(cell); });
+$("coverage").addEventListener("keydown", (e) => { const cell = e.target.closest("td.cov"); if (cell && e.key === "Enter") { e.preventDefault(); openCell(cell); } });
+window.addEventListener("scroll", () => { if (pop.cell) hidePop(); }, { passive: true });
 
 // ---------------------------------------------------------------- 2. collect
 let plan = null;
@@ -411,11 +479,25 @@ $("btnLlmStop").addEventListener("click", () => { S.stop = true; });
 // ---------------------------------------------------------------- 3. labels: review
 const REV_PAGE = 96;
 let rev = { list: [], shown: REV_PAGE, sel: -1, urls: [] , tPending: false };
+const usableSt = (st) => st === "human" || st === "confirmed";
+const reviewSt = (st) => st === "unconfirmed" || st === "conflict";
+/** Crops behind one coverage cell: label "*usable", "*review" or a label like "7/8". */
+function cellCrops(roi, l) {
+  return S.crops.filter((c) => {
+    if (c.roi !== roi) return false;
+    const e = S.eff.get(c.id);
+    if (l === "*usable") return usableSt(e.status);
+    if (l === "*review") return reviewSt(e.status);
+    return usableSt(e.status) && e.label === l;
+  });
+}
 function reviewList() {
-  const roi = $("revRoi").value, st = $("revStatus").value;
+  const roi = $("revRoi").value, st = $("revStatus").value, lab = $("revLabel").value;
   return S.crops.filter((c) => {
     if (roi && c.roi !== roi) return false;
     const e = S.eff.get(c.id);
+    if (lab && e.label !== lab) return false;
+    if (st === "usable") return usableSt(e.status);
     if (st === "review") return e.status === "unconfirmed" || e.status === "conflict";
     if (st === "conflict") return e.status === "conflict";
     if (st === "human") return e.status === "human" || e.status === "excluded";
@@ -483,6 +565,7 @@ async function setHuman(c, l) {
   drawer();
 }
 $("revRoi").addEventListener("change", () => renderReview(true));
+$("revLabel").addEventListener("change", () => renderReview(true));
 $("revStatus").addEventListener("change", () => renderReview(true));
 $("revMore").addEventListener("click", () => { rev.shown += REV_PAGE; renderReview(false); });
 document.addEventListener("keydown", (e) => {
