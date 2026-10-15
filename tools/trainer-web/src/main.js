@@ -343,7 +343,7 @@ async function runScan() {
   });
   setBar("collectBar", 0);
   renderPlan(plan);
-  status("collectStatus", plan.complete ? `Checked ${plan.listed} new hour folders in ${fmtTime(plan.listSeconds)}.` : "Check stopped early; the numbers cover the folders listed so far.");
+  status("collectStatus", plan.complete ? `Checked ${plan.listed} new hour folders in ${fmtTime(plan.listSeconds)}${plan.fromCache ? ` (${plan.fromCache} remembered from an earlier check)` : ""}.` : "Check stopped early; the numbers cover the folders listed so far.");
   return plan;
 }
 async function runDownload() {

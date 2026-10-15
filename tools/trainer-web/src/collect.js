@@ -31,6 +31,22 @@ function hourKeys() {
   return [`${dayKey(now)}/${pad(now.getHours())}`, `${dayKey(prev)}/${pad(prev.getHours())}`];
 }
 
+// Listings of finished hour folders and of past days never change, so they are kept in the
+// browser: after a reload, a check only asks the device about folders it has not listed yet.
+// "Finished" leaves a few hours of margin in case the device's clock runs in another time zone.
+const STABLE_MS = 4 * 3600000;
+const hourKey = (d) => `${dayKey(d)}/${pad(d.getHours())}`;
+async function cachedList(path, keep) {
+  const k = `ls:${path}`;
+  if (keep) {
+    const c = await kvGet(k);
+    if (c) return { entries: c, cached: true };
+  }
+  const entries = await list(path);
+  if (keep) await kvSet(k, entries);
+  return { entries, cached: false };
+}
+
 export const groupOf = (roi, pred, rejected) => `${roi}|${rejected ? "rejected" : predLabel(pred)}`;
 
 /** Evenly spaced pick of n items (sorted by ts). */
@@ -53,13 +69,15 @@ export async function scan({ days = 7, quota = 150, have = new Map(), shouldStop
   const oldest = dayKey(new Date(Date.now() - (days - 1) * 86400000));
   const live = hourKeys();
   const t0 = performance.now();
-  const plan = { hours: [], onDevice: 0, toFetch: 0, have: 0, skippedEnough: 0, listed: 0, knownHours: 0, groups: new Map() };
+  const stableHour = hourKey(new Date(Date.now() - STABLE_MS));
+  const stableDay = dayKey(new Date(Date.now() - 86400000 - STABLE_MS));
+  const plan = { hours: [], onDevice: 0, toFetch: 0, have: 0, skippedEnough: 0, listed: 0, fromCache: 0, knownHours: 0, groups: new Map() };
   const dayDirs = (await list("log/digit")).filter((e) => e.dir && /^\d{8}$/.test(e.name) && e.name >= oldest);
   dayDirs.sort((a, b) => (a.name < b.name ? 1 : -1));
   const todo = [];
   for (const day of dayDirs) {
     if (shouldStop()) break;
-    const hours = (await list(`log/digit/${day.name}`)).filter((e) => e.dir && /^\d{2}$/.test(e.name));
+    const hours = (await cachedList(`log/digit/${day.name}`, day.name < stableDay)).entries.filter((e) => e.dir && /^\d{2}$/.test(e.name));
     for (const h of hours.sort((a, b) => (a.name < b.name ? 1 : -1))) {
       const key = `${day.name}/${h.name}`;
       if (doneHours[key]) plan.knownHours++; else todo.push(key);
@@ -69,7 +87,9 @@ export async function scan({ days = 7, quota = 150, have = new Map(), shouldStop
   for (const key of todo) {
     if (shouldStop()) break;
     onProgress({ listed: plan.listed, total: todo.length, folder: key });
-    const files = (await list(`log/digit/${key}`)).filter((e) => !e.dir);
+    const ls = await cachedList(`log/digit/${key}`, key < stableHour);
+    if (ls.cached) plan.fromCache++;
+    const files = ls.entries.filter((e) => !e.dir);
     plan.onDevice += files.length;
     for (const f of files) {
       const meta = parseCropName(f.name);
