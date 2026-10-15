@@ -673,7 +673,7 @@ function renderReview(reset) {
       rev.list = rev.groupKey ? m.get(rev.groupKey) : [];
       rev.list.sort((a, b) => (a.ts < b.ts ? -1 : 1));
     } else rev.list = reviewList();
-    rev.shown = REV_PAGE; rev.sel = -1; $("drawer").hidden = true;
+    rev.shown = $("revGuided").checked ? rev.list.length : REV_PAGE; rev.sel = -1; $("drawer").hidden = true;
   }
   renderGroupBar();
   rev.urls.forEach((u) => URL.revokeObjectURL(u)); rev.urls = [];
@@ -683,13 +683,25 @@ function renderReview(reset) {
   $("revMore").textContent = `Show more (${rev.list.length - rev.shown} left)`;
   if (!rev.list.length) g.innerHTML = `<p class="hint">Nothing to show here.</p>`;
 }
+const tileImages = new IntersectionObserver((entries) => {
+  for (const en of entries) {
+    if (!en.isIntersecting) continue;
+    const img = en.target;
+    tileImages.unobserve(img);
+    store.getJpeg(img.dataset.id).then((b) => {
+      if (!b || !img.isConnected) return;
+      const u = URL.createObjectURL(new Blob([b], { type: "image/jpeg" })); rev.urls.push(u); img.src = u;
+    });
+  }
+}, { rootMargin: "400px 0px" });
 function tile(c, k) {
   const e = S.eff.get(c.id);
   const t = document.createElement("button");
   t.type = "button"; t.className = `tile st-${e.status}`; t.dataset.k = k;
   t.setAttribute("aria-selected", k === rev.sel ? "true" : "false");
   const img = document.createElement("img"); img.alt = ""; img.loading = "lazy";
-  store.getJpeg(c.id).then((b) => { if (!b) return; const u = URL.createObjectURL(new Blob([b], { type: "image/jpeg" })); rev.urls.push(u); img.src = u; });
+  img.dataset.id = c.id;
+  tileImages.observe(img);
   const l = document.createElement("span"); l.className = "l"; l.textContent = e.status === "excluded" ? "x" : (e.label ?? "?");
   const s = document.createElement("span"); s.className = "s"; s.textContent = `${c.roi} · ${e.sources}`;
   t.append(img, l, s);
