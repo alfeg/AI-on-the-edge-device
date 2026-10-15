@@ -32,7 +32,7 @@ const tlog = (label, t0) => { if (DEBUG) console.log(`[timing] ${label}: ${(perf
 const LOC = LANG === "ru" ? "ru-RU" : undefined; // numbers and dates follow the page language
 const hhmmss = () => new Date().toLocaleTimeString(LOC, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 // progress messages that only differ in numbers/times update their own line
-const logKey = (t) => t.split(" (")[0].replace(/[\d:.,()]+/g, "").replace(/\s+/g, " ").trim();
+const logKey = (text) => text.split(" (")[0].replace(/[\d:.,()]+/g, "").replace(/\s+/g, " ").trim();
 function logLine(el, text, bad) {
   const last = el.lastElementChild;
   if (last && !last.classList.contains("head") && last.dataset.key === logKey(text)) {
@@ -66,7 +66,7 @@ function pill(id, text, kind = "", vars) {
   if (np) { np.textContent = el.textContent; np.className = `np ${kind}`; np.dataset.hint = hint; }
   renderSummary();
 }
-const title = (t) => { document.title = t ? `${t} · ${baseTitle}` : baseTitle; };
+const title = (text) => { document.title = text ? `${text} · ${baseTitle}` : baseTitle; };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const parseSize = (v) => v.split("|").map((s) => s.split(",").map(Number));
 // One task at a time: while one runs, every action button (class "act") is disabled.
@@ -270,10 +270,10 @@ async function showPop(cell) {
   // place it under the table (or above it), lined up with the cell, so it never covers
   // the other numbers; the popover itself ignores the pointer (see .pop in the CSS)
   el.hidden = false;
-  const r = cell.getBoundingClientRect(), t = cell.closest("table").getBoundingClientRect();
+  const r = cell.getBoundingClientRect(), tableBox = cell.closest("table").getBoundingClientRect();
   const w = el.offsetWidth, h = el.offsetHeight;
-  let y = t.bottom + 8;
-  if (y + h > innerHeight - 8 && t.top - h - 8 > 8) y = t.top - h - 8;
+  let y = tableBox.bottom + 8;
+  if (y + h > innerHeight - 8 && tableBox.top - h - 8 > 8) y = tableBox.top - h - 8;
   const x = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2));
   el.style.left = `${x}px`; el.style.top = `${Math.max(8, Math.min(y, innerHeight - h - 8))}px`;
 }
@@ -426,7 +426,7 @@ $("fileZip").addEventListener("change", async (e) => {
 });
 
 // ---- export: the same zip format the import reads, plus every label source
-const csvCell = (v) => { const t = v == null ? "" : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+const csvCell = (v) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 function exportRows(withImages) {
   return S.crops.map((c, i) => {
     const e = S.eff.get(c.id) || {}, r = S.labels.get(c.id) || {};
@@ -714,17 +714,17 @@ const tileImages = new IntersectionObserver((entries) => {
 }, { rootMargin: "400px 0px" });
 function tile(c, k) {
   const e = S.eff.get(c.id);
-  const t = document.createElement("button");
-  t.type = "button"; t.className = `tile st-${e.status}`; t.dataset.k = k; t.dataset.hint = statusHint[e.status] || "";
-  t.setAttribute("aria-selected", k === rev.sel ? "true" : "false");
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.className = `tile st-${e.status}`; btn.dataset.k = k; btn.dataset.hint = statusHint[e.status] || "";
+  btn.setAttribute("aria-selected", k === rev.sel ? "true" : "false");
   const img = document.createElement("img"); img.alt = ""; img.loading = "lazy";
   img.dataset.id = c.id;
   tileImages.observe(img);
   const l = document.createElement("span"); l.className = "l"; l.textContent = e.status === "excluded" ? "x" : (e.label ?? "?");
   const s = document.createElement("span"); s.className = "s"; s.textContent = `${c.roi} · ${sourcesText(e.sources)}`;
-  t.append(img, l, s);
-  t.addEventListener("click", () => select(k));
-  return t;
+  btn.append(img, l, s);
+  btn.addEventListener("click", () => select(k));
+  return btn;
 }
 function select(k) {
   const prev = rev.sel; rev.sel = k; rev.tPending = false;

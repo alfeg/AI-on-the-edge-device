@@ -15,7 +15,7 @@ function queued(fn) {
 
 async function req(path, opts = {}, timeoutMs = 30000) {
   const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), timeoutMs);
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
     const r = await fetch(base + path, { ...opts, signal: ctl.signal, cache: "no-store" });
     if (!r.ok) {
@@ -26,7 +26,7 @@ async function req(path, opts = {}, timeoutMs = 30000) {
     }
     return r;
   } finally {
-    clearTimeout(t);
+    clearTimeout(timer);
   }
 }
 

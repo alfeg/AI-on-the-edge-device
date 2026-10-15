@@ -13,10 +13,10 @@ export const PROMPT =
   "(9/0 for the 9-to-0 transition). If you cannot read it, reply N. Reply with nothing else.";
 
 export function parseAnswer(text) {
-  const t = (text || "").trim();
-  const m = t.match(/\b(\d)\s*\/\s*(\d)\b/);
+  const s = (text || "").trim();
+  const m = s.match(/\b(\d)\s*\/\s*(\d)\b/);
   if (m) return `${m[1]}/${m[2]}`;
-  const d = t.match(/\d/);
+  const d = s.match(/\d/);
   return d ? d[0] : "N";
 }
 
@@ -41,7 +41,7 @@ const trimUrl = (u) => u.replace(/\/+$/, "").replace(/\/v1$/, "");
 /** settings: {provider, url, model, key}; returns {answer, raw, seconds} */
 export async function ask(settings, b64, timeoutMs = 120000) {
   const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), timeoutMs);
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
   const t0 = performance.now();
   try {
     let r, raw;
@@ -73,7 +73,7 @@ export async function ask(settings, b64, timeoutMs = 120000) {
     if (e instanceof TypeError) throw new Error(blockedHint(settings));
     throw e;
   } finally {
-    clearTimeout(t);
+    clearTimeout(timer);
   }
 }
 

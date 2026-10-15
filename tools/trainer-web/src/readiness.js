@@ -21,7 +21,7 @@ export function configChecks(text) {
   else out.push({ level: "ok", title: t("{n} digit wheels configured", { n: rois.length }), detail: rois.map((r) => r.name).join(", ") });
 
   const retention = (ret?.enabled && ret.value !== "") ? +ret.value : 3;
-  const setLogging = (t) => setKey(setKey(t, "Digits", "ROIImagesLocation", "/log/digit"), "Digits", "ROIImagesRetention", String(RECOMMENDED_RETENTION));
+  const setLogging = (text) => setKey(setKey(text, "Digits", "ROIImagesLocation", "/log/digit"), "Digits", "ROIImagesRetention", String(RECOMMENDED_RETENTION));
   if (!loc?.enabled || !loc.value) {
     out.push({ level: "block", title: t("The device is not saving digit images"),
       detail: t("Without saved crops there is nothing to train on. Turning it on sets ROIImagesLocation = /log/digit and keeps {days} days (about {n} small images a day). The device restarts once.",
@@ -30,7 +30,7 @@ export function configChecks(text) {
   } else if (retention > 0 && retention < 7) {
     out.push({ level: "warn", title: t("Digit images are deleted after {n} days", { n: retention }),
       detail: t("Collect at least every {n} days, or keep them longer. {rec} days lets you train on two weeks of data.", { n: retention, rec: RECOMMENDED_RETENTION }),
-      fix: { label: t("Keep {n} days", { n: RECOMMENDED_RETENTION }), apply: (t) => setKey(t, "Digits", "ROIImagesRetention", String(RECOMMENDED_RETENTION)) } });
+      fix: { label: t("Keep {n} days", { n: RECOMMENDED_RETENTION }), apply: (text) => setKey(text, "Digits", "ROIImagesRetention", String(RECOMMENDED_RETENTION)) } });
   } else if (retention === 0) {
     out.push({ level: "info", title: t("Digit images are kept forever"),
       detail: t("The SD card fills up and wears out over time (the device does no wear levelling). Consider a limit such as 30 days.") });
