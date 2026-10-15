@@ -98,6 +98,7 @@ public:
 
     esp_err_t CaptureToHTTP(httpd_req_t *req, int delay = 0);
     esp_err_t CaptureToStream(httpd_req_t *req, bool FlashlightOn);
+    bool LiveStreamActive(void);
 
     void SetQualityZoomSize(int qual, framesize_t resol, bool zoomEnabled, int zoomOffsetX, int zoomOffsetY, int imageSize, int imageVflip);
     void SetZoomSize(bool zoomEnabled, int zoomOffsetX, int zoomOffsetY, int imageSize, int imageVflip);

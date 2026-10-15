@@ -4,6 +4,7 @@
 #include <vector>
 #include "string.h"
 #include "esp_log.h"
+#include "esp_pm.h"
 #include <esp_timer.h>
 
 #include <iomanip>
@@ -1682,8 +1683,44 @@ void task_autodoFlow(void *pvParameter)
         LogFile.WriteToFile(ESP_LOG_INFO, TAG, "Autostart is not enabled -> Not starting Flow");
     }
 
+    // Run rounds at full CPU speed; between rounds the CPU may drop to the idle frequency (see setCpuFrequency)
+    esp_pm_lock_handle_t cpuMaxLock = NULL;
+    if (esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "flow", &cpuMaxLock) != ESP_OK)
+    {
+        LogFile.WriteToFile(ESP_LOG_WARN, TAG, "Failed to create CPU frequency lock, rounds may run at idle frequency");
+        cpuMaxLock = NULL;
+    }
+
     while (autostartIsEnabled)
     {
+        // Don't start a round while the live stream is watched (e.g. to aim or focus the camera):
+        // the round would grab the camera, switch the flashlight and apply the configured settings.
+        if (Camera.LiveStreamActive())
+        {
+            LogFile.WriteToFile(ESP_LOG_INFO, TAG, "Live stream active -> next round postponed");
+            flowctrl.setActStatus("Paused (live stream)");
+            int64_t pauseStart = esp_timer_get_time();
+
+            while (Camera.LiveStreamActive() && ((esp_timer_get_time() - pauseStart) / 1000 < CAM_LIVESTREAM_MAX_FLOW_PAUSE))
+            {
+                vTaskDelay(1000 / portTICK_PERIOD_MS);
+            }
+
+            if (Camera.LiveStreamActive())
+            {
+                LogFile.WriteToFile(ESP_LOG_WARN, TAG, "Live stream still active after " + std::to_string(CAM_LIVESTREAM_MAX_FLOW_PAUSE / 60000) + " min -> running round anyway");
+            }
+            else
+            {
+                LogFile.WriteToFile(ESP_LOG_INFO, TAG, "Live stream closed -> resuming rounds");
+            }
+        }
+
+        if (cpuMaxLock)
+        {
+            esp_pm_lock_acquire(cpuMaxLock);
+        }
+
         LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, "----------------------------------------------------------------"); // Clear separation between runs
         time_t roundStartTime = getUpTime();
 
@@ -1739,6 +1776,11 @@ void task_autodoFlow(void *pvParameter)
 #endif
 
         fr_delta_ms = (esp_timer_get_time() - fr_start) / 1000;
+
+        if (cpuMaxLock)
+        {
+            esp_pm_lock_release(cpuMaxLock);
+        }
 
         if (auto_interval > fr_delta_ms)
         {

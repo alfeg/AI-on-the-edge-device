@@ -5,6 +5,7 @@
 #include "driver/gpio.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "esp_pm.h"
 
 #include "Helper.h"
 #include "statusled.h"
@@ -54,6 +55,42 @@ camera_controll_config_temp_t CCstatus;
 
 static const char *TAG = "CAM";
 
+// With dynamic frequency scaling the CPU idles at 80 MHz between flow rounds (see setCpuFrequency).
+// The camera driver's cam_task copies I2S DMA chunks into the PSRAM frame buffer and can't keep up
+// at that speed -> torn/garbled frames (live stream, /capture, reference image). Hold the CPU at
+// full speed for the duration of every capture. esp_pm locks are counted, nesting is fine.
+class CameraCpuMaxLock
+{
+public:
+    CameraCpuMaxLock()
+    {
+        static esp_pm_lock_handle_t lock = NULL;
+
+        if (lock == NULL && esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "camera", &lock) != ESP_OK)
+        {
+            lock = NULL;
+        }
+
+        handle = lock;
+
+        if (handle)
+        {
+            esp_pm_lock_acquire(handle);
+        }
+    }
+
+    ~CameraCpuMaxLock()
+    {
+        if (handle)
+        {
+            esp_pm_lock_release(handle);
+        }
+    }
+
+private:
+    esp_pm_lock_handle_t handle;
+};
+
 /* Camera live stream */
 #define PART_BOUNDARY "123456789000000000000987654321"
 static const char *_STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
@@ -61,6 +98,11 @@ static const char *_STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
 static const char *_STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
 uint8_t *demoImage = NULL;    // Buffer holding the demo image in bytes
+
+// Live stream state, read by the flow task to postpone rounds (see LiveStreamActive)
+static volatile int liveStreamClients = 0;
+static volatile TickType_t liveStreamLastEnd = 0;
+static volatile bool liveStreamEverStarted = false;
 #define DEMO_IMAGE_SIZE 30000 // Max size of demo image in bytes
 
 // Camera module bus communications frequency.
@@ -636,6 +678,8 @@ esp_err_t CCamera::CaptureToBasisImage(CImageBasis *_Image, int delay)
     LogFile.WriteHeapInfo("CaptureToBasisImage - Start");
 #endif
 
+    CameraCpuMaxLock cpuMaxLock;
+
     _Image->EmptyImage(); // Delete previous stored raw image -> black image
 
     LEDOnOff(true); // Status-LED on
@@ -736,6 +780,7 @@ esp_err_t CCamera::CaptureToBasisImage(CImageBasis *_Image, int delay)
 esp_err_t CCamera::CaptureToFile(std::string nm, int delay)
 {
     string ftype;
+    CameraCpuMaxLock cpuMaxLock;
 
     LEDOnOff(true); // Status-LED on
 
@@ -841,6 +886,7 @@ esp_err_t CCamera::CaptureToHTTP(httpd_req_t *req, int delay)
     esp_err_t res = ESP_OK;
     size_t fb_len = 0;
     int64_t fr_start = esp_timer_get_time();
+    CameraCpuMaxLock cpuMaxLock;
 
     LEDOnOff(true); // Status-LED on
 
@@ -922,6 +968,7 @@ esp_err_t CCamera::CaptureToStream(httpd_req_t *req, bool FlashlightOn)
     size_t fb_len = 0;
     int64_t fr_start;
     char *part_buf[64];
+    CameraCpuMaxLock cpuMaxLock;
 
     // wenn die Kameraeinstellungen durch Erstellen eines neuen Referenzbildes verändert wurden, müssen sie neu gesetzt werden
     if (CFstatus.changedCameraSettings)
@@ -933,6 +980,8 @@ esp_err_t CCamera::CaptureToStream(httpd_req_t *req, bool FlashlightOn)
     }
 
     LogFile.WriteToFile(ESP_LOG_INFO, TAG, "Live stream started");
+    liveStreamClients++;
+    liveStreamEverStarted = true;
 
     if (FlashlightOn)
     {
@@ -1000,9 +1049,23 @@ esp_err_t CCamera::CaptureToStream(httpd_req_t *req, bool FlashlightOn)
     LEDOnOff(false);   // Status-LED off
     LightOnOff(false); // Flash-LED off
 
+    liveStreamLastEnd = xTaskGetTickCount();
+    liveStreamClients--;
     LogFile.WriteToFile(ESP_LOG_INFO, TAG, "Live stream stopped");
 
     return res;
+}
+
+// True while a live stream is open and for CAM_LIVESTREAM_FLOW_GRACE ms after the last one closed.
+// The flow task doesn't start a round meanwhile, so the camera can be adjusted while watching the stream.
+bool CCamera::LiveStreamActive(void)
+{
+    if (liveStreamClients > 0)
+    {
+        return true;
+    }
+
+    return liveStreamEverStarted && ((xTaskGetTickCount() - liveStreamLastEnd) < pdMS_TO_TICKS(CAM_LIVESTREAM_FLOW_GRACE));
 }
 
 void CCamera::LightOnOff(bool status)

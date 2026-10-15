@@ -60,6 +60,8 @@
 
     //ClassControllCamera
     #define CAM_LIVESTREAM_REFRESHRATE 500      // Camera livestream feature: Waiting time in milliseconds to refresh image
+    #define CAM_LIVESTREAM_FLOW_GRACE 10000     // Camera livestream feature: Rounds stay postponed this many ms after the stream closed (page reloads)
+    #define CAM_LIVESTREAM_MAX_FLOW_PAUSE 1800000 // Camera livestream feature: Run a round anyway after the stream postponed it this many ms
     // #define GRAYSCALE_AS_DEFAULT
 
 
