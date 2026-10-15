@@ -26,8 +26,30 @@ const DEBUG = location.search.includes("debug");
 const tlog = (label, t0) => { if (DEBUG) console.log(`[timing] ${label}: ${(performance.now() - t0).toFixed(0)} ms`); };
 
 // ---------------------------------------------------------------- small UI helpers
+const hhmmss = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+// progress messages that only differ in numbers/times update their own line
+const logKey = (t) => t.split(" (")[0].replace(/[\d:.,()]+/g, "").replace(/\s+/g, " ").trim();
+function logLine(el, text, bad) {
+  const last = el.lastElementChild;
+  if (last && !last.classList.contains("head") && last.dataset.key === logKey(text)) {
+    last.querySelector(".m").textContent = text; last.classList.toggle("bad", bad); return;
+  }
+  const li = document.createElement("li");
+  li.dataset.key = logKey(text); li.classList.toggle("bad", bad);
+  li.innerHTML = `<time>${hhmmss()}</time><span class="m"></span>`;
+  li.querySelector(".m").textContent = text;
+  el.append(li);
+  el.scrollTop = el.scrollHeight;
+}
+function logHead(id, text) {
+  const el = $(id), li = document.createElement("li");
+  li.className = "head"; li.innerHTML = `<time>${hhmmss()}</time><span class="m"></span>`;
+  li.querySelector(".m").textContent = text; el.append(li); el.hidden = false;
+}
 function status(id, text, bad = false) {
-  const el = $(id); el.textContent = text; el.classList.toggle("bad", bad);
+  const el = $(id);
+  if (el.classList.contains("log")) { el.hidden = false; logLine(el, text, bad); }
+  else { el.textContent = text; el.classList.toggle("bad", bad); }
   if (S.busy && (id === S.where || id === "autoStatus")) $("activityText").textContent = `${S.busy}: ${text}`;
 }
 const setBar = (id, frac) => { $(id).style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`; };
@@ -71,6 +93,8 @@ function show(step) {
   window.scrollTo({ top: 0 });
 }
 document.querySelectorAll("nav.steps button").forEach((b) => b.addEventListener("click", () => show(b.dataset.step)));
+const setNavH = () => document.documentElement.style.setProperty("--navh", `${$("steps").offsetHeight}px`);
+addEventListener("resize", setNavH); setNavH();
 window.addEventListener("hashchange", () => show(location.hash.slice(1)));
 $("activityGo").addEventListener("click", () => show(WHERE_STEP[S.where] || "start"));
 // Back / Next at the bottom of every step
@@ -140,6 +164,7 @@ $("checks").addEventListener("click", async (e) => {
   if (b.dataset.no) { box.hidden = true; return; }
   if (!busy("device setup", "setupStatus")) return;
   try {
+    logHead("setupStatus", S.checks[i].fix.label);
     const next = S.checks[i].fix.apply(S.cfg);
     const backup = await dev.writeConfigAndReboot(next, (s) => status("setupStatus", s));
     await dev.waitForReading((s) => status("setupStatus", s));
@@ -565,6 +590,7 @@ function reviewList(useFilters = true) {
     const e = S.eff.get(c.id);
     if (lab && e.label !== lab) return false;
     if (st === "usable") return usableSt(e.status);
+    if (st === "unapproved") return e.status !== "human" && e.status !== "excluded" && !!e.label;
     if (st === "review") return e.status === "unconfirmed" || e.status === "conflict";
     if (st === "conflict") return e.status === "conflict";
     if (st === "human") return e.status === "human" || e.status === "excluded";
@@ -866,8 +892,10 @@ async function runInstall() {
   const m = S.model;
   const name = ($("fname").value.trim() || m.name).replace(/[^\w.-]/g, "_");
   const path = `/config/${name.endsWith(".tflite") ? name : `${name}.tflite`}`;
-  status("installStatus", `Uploading ${path}…`);
+  logHead("installStatus", `Install ${path}`);
+  status("installStatus", `Uploading the model (${(m.bytes.length / 1024).toFixed(0)} KB)…`);
   await dev.upload(path, m.bytes);
+  status("installStatus", "Model uploaded and checked (MD5).");
   const cfg = await dev.readConfig();
   const prev = getKey(cfg, "Digits", "Model")?.value;
   const backup = await dev.writeConfigAndReboot(setKey(cfg, "Digits", "Model", path), (s) => status("installStatus", s));
@@ -890,6 +918,7 @@ $("btnUndo").addEventListener("click", async () => {
   try {
     const hist = await store.kvGet("installs", []);
     const last = hist.at(-1);
+    logHead("installStatus", `Go back to ${last.prev}`);
     const cfg = await dev.readConfig();
     await dev.writeConfigAndReboot(setKey(cfg, "Digits", "Model", last.prev), (s) => status("installStatus", s));
     const v = await dev.waitForReading((s) => status("installStatus", s));

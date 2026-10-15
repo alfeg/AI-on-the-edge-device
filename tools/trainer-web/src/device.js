@@ -98,10 +98,11 @@ export async function writeConfigAndReboot(newText, onStatus = () => {}) {
   const backup = `/config/config_${ts}.ini.bak`;
   onStatus("Saving a backup of the current configuration…");
   await upload(backup, new TextEncoder().encode(old));
-  onStatus("Waiting for the current reading round to finish…");
-  await waitRoundEnd((s) => onStatus(`Waiting for the round to finish (${s})`));
+  onStatus(`Backup saved as ${backup}.`);
+  const round = await waitRoundEnd((s) => onStatus(`Waiting for the reading round to finish (device: ${s})`));
+  onStatus(`Round finished (${round}). Writing the new configuration…`);
   await upload("/config/config.ini", new TextEncoder().encode(newText));
-  onStatus("Configuration saved. Rebooting the device…");
+  onStatus("Configuration written and checked (MD5). Restarting the device…");
   await queued(() => req("/reboot", {}, 10000)).catch(() => {}); // the connection drops on reboot
   return backup;
 }
@@ -113,7 +114,7 @@ export async function writeConfigAndReboot(newText, onStatus = () => {}) {
 export async function waitForReading(onStatus = () => {}, quietMs = 150000, maxMs = 12 * 60000) {
   const t0 = Date.now();
   while (Date.now() - t0 < quietMs) {
-    onStatus(`Device is restarting… ${Math.ceil((quietMs - (Date.now() - t0)) / 1000)} s`);
+    onStatus(`Device is restarting; waiting ${Math.ceil((quietMs - (Date.now() - t0)) / 1000)} s before asking it anything`);
     await sleep(5000);
   }
   let before = null;
@@ -121,9 +122,8 @@ export async function waitForReading(onStatus = () => {}, quietMs = 150000, maxM
     try {
       const v = await readValue();
       const ts = Object.values(v)[0]?.timestamp;
-      if (before === null) before = ts;
+      if (before === null) { before = ts; onStatus(`Device answers again (last reading ${ts}). Waiting for a new reading…`); }
       else if (ts !== before) return v;
-      onStatus("Waiting for the first reading after the restart…");
     } catch {
       onStatus("Waiting for the device to answer…");
     }

@@ -32,7 +32,7 @@ h1 { font-size: 1.4rem; margin: 0; }
 .badges span { border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; }
 
 /* step bar */
-nav.steps { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; position: sticky; top: 0; z-index: 5; background: var(--bg); padding-top: 6px; }
+nav.steps { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; position: sticky; top: 0; z-index: 5; background: var(--bg); padding-top: 6px; }
 nav.steps button { height: auto; min-height: 52px; flex: 1 0 auto; display: grid; gap: 2px; justify-items: start; text-align: left; padding: 6px 12px; border-radius: 8px; font-weight: 600; background: var(--panel); }
 nav.steps button .np { font: 500 .68rem var(--sans); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 nav.steps button[aria-current="step"] { border-color: var(--accent); box-shadow: inset 0 -3px 0 var(--accent); }
@@ -98,7 +98,14 @@ canvas#chart { width: 100%; height: 130px; border: 1px solid var(--line); border
 .stepnav { display: flex; justify-content: space-between; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
 details > summary { cursor: pointer; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; }
-.groupbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+ol.log { list-style: none; margin: 0; padding: 8px 10px; font: 13px/1.5 var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; max-height: 260px; overflow-y: auto; display: grid; gap: 2px; }
+ol.log li { display: grid; grid-template-columns: 5.5em 1fr; gap: 10px; color: var(--ink); }
+ol.log time { color: var(--muted); font-variant-numeric: tabular-nums; }
+ol.log li.bad { color: var(--bad); }
+ol.log li.head { font-weight: 700; margin-top: 4px; }
+ol.log li.head:first-child { margin-top: 0; }
+.groupbar { position: sticky; top: var(--navh, 64px); z-index: 4; box-shadow: 0 4px 12px rgb(0 0 0 / .18);
+  display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 .groupbar span { flex: 1 1 260px; font-size: .92rem; min-width: 0; }
 td.cov { cursor: pointer; border-radius: 4px; }
 td.cov:hover, td.cov:focus-visible { background: var(--accent-soft); outline: none; }
@@ -160,7 +167,7 @@ td.cov:hover, td.cov:focus-visible { background: var(--accent-soft); outline: no
   <section data-step="setup" id="sSetup" hidden>
     <h2>1 · Device setup <span class="pill" id="setupPill">checking</span></h2>
     <ul class="checks" id="checks"></ul>
-    <div class="status" id="setupStatus"></div>
+    <ol class="log" id="setupStatus" hidden aria-live="polite"></ol>
   </section>
 
   <section data-step="collect" id="sCollect" hidden>
@@ -223,7 +230,7 @@ td.cov:hover, td.cov:focus-visible { background: var(--accent-soft); outline: no
       <label class="f" for="revRoi">Wheel <select id="revRoi"><option value="">All</option></select></label>
       <label class="f" for="revLabel">Label <select id="revLabel"><option value="">Any</option><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>0/1</option><option>1/2</option><option>2/3</option><option>3/4</option><option>4/5</option><option>5/6</option><option>6/7</option><option>7/8</option><option>8/9</option><option>9/0</option></select></label>
       <label class="f" for="revStatus">Show <select id="revStatus">
-        <option value="review">Needs review</option><option value="conflict">Disagreements</option><option value="usable">Usable</option><option value="human">Labelled by you</option><option value="all">All</option></select></label>
+        <option value="review">Needs review</option><option value="conflict">Disagreements</option><option value="unapproved">Not approved by you</option><option value="usable">Usable</option><option value="human">Labelled by you</option><option value="all">All</option></select></label>
     </div>
     <p class="hint">Click an image, then: <b>0–9</b> digit · <b>T</b> then a digit for between two digits (T 6 = 6/7) · <b>X</b> unusable · <b>Backspace</b> remove your label · <b>← →</b> move · <b>Enter</b> accept the shown label. Group by group: fix the wrong ones, then <b>A</b> approves all the others as shown and moves on · <b>[ ]</b> previous / next group.</p>
     <div class="grid" id="revGrid" role="listbox" aria-label="Images to review"></div>
@@ -262,7 +269,7 @@ td.cov:hover, td.cov:focus-visible { background: var(--accent-soft); outline: no
       <button id="btnDownload" disabled>Download .tflite</button>
     </div>
     <div class="confirm" id="installConfirm" hidden><span id="installConfirmText"></span><button class="primary" id="btnInstallYes">Install</button><button id="btnInstallNo">Cancel</button></div>
-    <div class="status" id="installStatus"></div>
+    <ol class="log" id="installStatus" hidden aria-live="polite"></ol>
     <div class="more"><button class="link act" id="btnUndo" type="button" hidden>Go back to the previous model</button></div>
     <p class="hint">Installing uploads the model to <code>/config/</code>, saves a copy of the configuration next to it, switches the digit model right after a reading round and restarts the device, then waits for its first reading. The previous model file stays on the card.</p>
   </section>
