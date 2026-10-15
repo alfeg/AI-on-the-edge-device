@@ -998,6 +998,13 @@ async function init() {
   const d = await dev.detect();
   S.onDevice = d.ok;
   $("bDevice").textContent = d.ok ? `device ${location.host} · ${d.status}` : "not on a device";
+  if (d.ok) {
+    dev.readConfig().catch(() => "").then(dev.meterName).then((name) => {
+      if (!name) return;
+      $("meterName").textContent = name; $("meterName").hidden = false;
+      document.title = `${name} · Meter Model Trainer`;
+    });
+  }
   await loadLlmSettings();
   S.model = await store.kvGet("lastModel");
   renderModel();

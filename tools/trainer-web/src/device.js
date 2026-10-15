@@ -52,6 +52,16 @@ export async function list(path) {
   return out;
 }
 
+/** The device's name: its hostname, else the MQTT topic from config.ini, else "". */
+export async function meterName(configText) {
+  try {
+    const h = (await getText("/info?type=Hostname", 8000)).trim();
+    if (h && h !== "undefined") return h;
+  } catch { /* older firmware: fall through */ }
+  const m = /^\[MQTT\][^[]*?^\s*MainTopic\s*=\s*(\S+)/m.exec(configText || "");
+  return m ? m[1] : "";
+}
+
 export const readConfig = () => getText("/fileserver/config/config.ini");
 export const statusFlow = async () => (await getText("/statusflow", 10000)).trim();
 export const readValue = async () => JSON.parse(await getText("/json", 10000));

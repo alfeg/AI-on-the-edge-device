@@ -98,7 +98,8 @@ code { font: var(--text-sm) var(--font-mono); color: var(--color-ink); }
 
 /* header: wordmark left, a mono status readout right */
 header { display: flex; flex-wrap: wrap; gap: var(--space-2xs) var(--space-md); align-items: baseline; justify-content: space-between; padding-top: var(--space-xs); }
-h1 { margin: 0; font: 600 var(--text-lg)/1.2 var(--font-display); color: var(--color-ink); }
+h1 { margin: 0; font: 600 var(--text-lg)/1.2 var(--font-display); color: var(--color-ink); overflow-wrap: anywhere; min-width: 0; }
+#meterName { margin-left: var(--space-sm); padding-left: var(--space-sm); border-left: var(--rule); color: var(--color-accent); }
 .badges { display: flex; flex-wrap: wrap; gap: var(--space-2xs) var(--space-sm); font: var(--text-xs) var(--font-mono); color: var(--color-muted); }
 .badges span + span::before { content: "·"; margin-right: var(--space-sm); color: var(--color-rule-strong); }
 
@@ -276,7 +277,7 @@ ol.log li.head:first-child { margin-top: 0; }
 <body>
 <div class="wrap">
   <header>
-    <h1>Meter model trainer</h1>
+    <h1>Meter model trainer<span id="meterName" hidden></span></h1>
     <div class="badges"><span id="bDevice">device …</span><span id="bBackend">backend …</span><span>v0.4</span></div>
   </header>
 

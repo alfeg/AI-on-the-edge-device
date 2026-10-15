@@ -8,7 +8,7 @@ import { viteSingleFile } from "vite-plugin-singlefile";
 // device API, so the page behaves as if the device served it.
 const device = process.env.DEVICE;
 const proxy = device
-  ? Object.fromEntries(["/fileserver", "/statusflow", "/json", "/upload", "/delete", "/reboot"].map((p) => [p, { target: device, changeOrigin: true }]))
+  ? Object.fromEntries(["/fileserver", "/statusflow", "/json", "/info", "/upload", "/delete", "/reboot"].map((p) => [p, { target: device, changeOrigin: true }]))
   : undefined;
 
 export default defineConfig({

@@ -1,4 +1,4 @@
-/* Iosevka (SIL OFL 1.1, © Renzhi Li — see fonts/OFL-iosevka.txt), subset to the characters
+/* Iosevka Extended (SIL OFL 1.1, © Renzhi Li — see fonts/OFL-iosevka.txt), subset to the characters
    this page uses (Latin-1, punctuation, arrows), no ligatures: ~10 KB per weight instead of
    ~1 MB. Inlined into trainer.html at build time: the page is served by the device and
    must work without internet. Rebuild the subset with scripts/subset-font.sh after adding
@@ -9,12 +9,12 @@
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url("./fonts/iosevka-400.woff2") format("woff2");
+  src: url("./fonts/iosevka-ext-400.woff2") format("woff2");
 }
 @font-face {
   font-family: "Trainer Iosevka";
   font-style: normal;
   font-weight: 600;
   font-display: swap;
-  src: url("./fonts/iosevka-600.woff2") format("woff2");
+  src: url("./fonts/iosevka-ext-600.woff2") format("woff2");
 }
