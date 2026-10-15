@@ -2,8 +2,7 @@
    this page uses (Latin-1, punctuation, arrows), no ligatures: ~10 KB per weight instead of
    ~1 MB. Inlined into trainer.html at build time: the page is served by the device and
    must work without internet. Rebuild the subset with scripts/subset-font.sh after adding
-   new non-ASCII characters to the page. Used for display (headings, step rail, readouts)
-   and mono (labels, logs, digits); body text stays on the system face. */
+   new non-ASCII characters to the page. Used for all text on the page. */
 @font-face {
   font-family: "Trainer Iosevka";
   font-style: normal;
