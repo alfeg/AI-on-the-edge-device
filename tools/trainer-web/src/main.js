@@ -166,7 +166,14 @@ async function refreshProject() {
     (est.usage ? ` (${(est.usage / 1e6).toFixed(0)} MB used)` : ""));
 }
 
+/** Recount after labels changed (debounced: keyboard labelling can be fast). */
+let covTimer = 0;
+function scheduleCoverage() {
+  clearTimeout(covTimer);
+  covTimer = setTimeout(() => { S.cov = coverage(S.crops, S.eff); renderCoverage(); }, 250);
+}
 function renderCoverage() {
+  if (pop.cell) hidePop(); // its cell is about to be replaced
   const c = S.cov;
   if (!c.rois.length) { $("coverage").innerHTML = `<p class="hint">No images yet. Collect them in step 2.</p>`; status("verdict", ""); pill("labelsPill", "–"); return; }
   const head = `<tr><th>Wheel</th><th>Images</th><th>Days</th><th>Usable</th><th>To review</th>${LABELS.map((l) => `<th>${l}</th>`).join("")}</tr>`;
@@ -456,6 +463,7 @@ async function runLlm(limit) {
       const rec = { ...(S.labels.get(c.id) || { id: c.id }), llm: r.answer, llmModel: s.model };
       S.labels.set(c.id, rec);
       S.eff.set(c.id, effective(c, rec, S.steady));
+      scheduleCoverage();
       done++;
     } catch (e) {
       failed++;
@@ -560,6 +568,7 @@ async function setHuman(c, l) {
   if (l === null) delete rec.human; else rec.human = l;
   S.labels.set(c.id, rec);
   S.eff.set(c.id, effective(c, rec, S.steady));
+  scheduleCoverage();
   const old = $("revGrid").querySelector(`[data-k="${rev.sel}"]`);
   if (old) old.replaceWith(tile(c, rev.sel));
   drawer();
