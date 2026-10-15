@@ -29,7 +29,8 @@ const DEBUG = location.search.includes("debug");
 const tlog = (label, t0) => { if (DEBUG) console.log(`[timing] ${label}: ${(performance.now() - t0).toFixed(0)} ms`); };
 
 // ---------------------------------------------------------------- small UI helpers
-const hhmmss = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+const LOC = LANG === "ru" ? "ru-RU" : undefined; // numbers and dates follow the page language
+const hhmmss = () => new Date().toLocaleTimeString(LOC, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 // progress messages that only differ in numbers/times update their own line
 const logKey = (t) => t.split(" (")[0].replace(/[\d:.,()]+/g, "").replace(/\s+/g, " ").trim();
 function logLine(el, text, bad) {
@@ -196,10 +197,10 @@ async function refreshProject() {
   const rois = S.cov.rois.map((r) => r.roi);
   const sel = $("revRoi").value;
   $("revRoi").innerHTML = `<option value="">${esc(t("All"))}</option>` + rois.map((r) => `<option ${r === sel ? "selected" : ""}>${esc(r)}</option>`).join("");
-  pill("collectPill", S.crops.length ? "{n} images" : "empty", S.crops.length ? "ok" : "", { n: S.crops.length.toLocaleString() });
+  pill("collectPill", S.crops.length ? "{n} images" : "empty", S.crops.length ? "ok" : "", { n: S.crops.length.toLocaleString(LOC) });
   renderReview(true);
   const est = await store.usage();
-  if (est && !S.busy) status("collectStatus", t("{n} images stored in this browser", { n: S.crops.length.toLocaleString() }) +
+  if (est && !S.busy) status("collectStatus", t("{n} images stored in this browser", { n: S.crops.length.toLocaleString(LOC) }) +
     (est.usage ? t(" ({mb} MB used)", { mb: (est.usage / 1e6).toFixed(0) }) : ""));
 }
 
@@ -311,14 +312,14 @@ function renderPlan(p) {
   const box = $("plan");
   if (!p) { box.hidden = true; return; }
   box.hidden = false;
-  box.innerHTML = `<div><b>${p.toFetch.toLocaleString()}</b><span>${esc(t("new images to download"))}</span></div>
+  box.innerHTML = `<div><b>${p.toFetch.toLocaleString(LOC)}</b><span>${esc(t("new images to download"))}</span></div>
     <div><b>${esc(t("about {time}", { time: fmtTime(p.toFetch / FILES_PER_S) }))}</b><span>${esc(t("at about {n} images/s", { n: FILES_PER_S }))}</span></div>
-    <div><b>${p.onDevice.toLocaleString()}</b><span>${esc(t("images in {n} new hour folders on the device", { n: p.listed }))}</span></div>
-    <div><b>${p.skippedEnough.toLocaleString()}</b><span>${esc(t("skipped: enough images of that reading already"))}</span></div>
-    <div><b>${p.have.toLocaleString()}</b><span>${esc(t("already here"))}${p.knownHours ? esc(t(", plus {n} hours collected earlier", { n: p.knownHours })) : ""}</span></div>
+    <div><b>${p.onDevice.toLocaleString(LOC)}</b><span>${esc(t("images in {n} new hour folders on the device", { n: p.listed }))}</span></div>
+    <div><b>${p.skippedEnough.toLocaleString(LOC)}</b><span>${esc(t("skipped: enough images of that reading already"))}</span></div>
+    <div><b>${p.have.toLocaleString(LOC)}</b><span>${esc(t("already here"))}${p.knownHours ? esc(t(", plus {n} hours collected earlier", { n: p.knownHours })) : ""}</span></div>
     <details class="pw"><summary>${esc(t("Per wheel"))}</summary><div class="tw">${perWheelTable(p)}</div></details>`;
   $("btnCollect").disabled = !p.toFetch;
-  $("btnCollect").textContent = p.toFetch ? t("Download {n} images", { n: p.toFetch.toLocaleString() }) : t("Nothing new to download");
+  $("btnCollect").textContent = p.toFetch ? t("Download {n} images", { n: p.toFetch.toLocaleString(LOC) }) : t("Nothing new to download");
 }
 function perWheelTable(p) {
   const w = new Map();
@@ -364,12 +365,12 @@ async function runDownload() {
     onProgress: (p) => {
       const left = p.total - p.fetched - p.failed;
       setBar("collectBar", (p.fetched + p.failed) / Math.max(1, p.total));
-      status("collectStatus", t("{i} of {n} downloaded", { i: p.fetched.toLocaleString(), n: p.total.toLocaleString() }) + (p.failed ? t(", {n} failed", { n: p.failed }) : "") +
+      status("collectStatus", t("{i} of {n} downloaded", { i: p.fetched.toLocaleString(LOC), n: p.total.toLocaleString(LOC) }) + (p.failed ? t(", {n} failed", { n: p.failed }) : "") +
         " · " + t("{n} images/s", { n: p.rate.toFixed(1) }) + " · " + t("about {time} left", { time: fmtTime(left / Math.max(0.1, p.rate)) }));
       title(t("collecting {p}%", { p: Math.round(((p.fetched + p.failed) / Math.max(1, p.total)) * 100) }));
     },
   });
-  status("collectStatus", t(S.stop ? "Stopped: {n} new images" : "Done: {n} new images", { n: res.fetched.toLocaleString() }) + (res.failed ? t(", {n} could not be read", { n: res.failed }) : "") + ".");
+  status("collectStatus", t(S.stop ? "Stopped: {n} new images" : "Done: {n} new images", { n: res.fetched.toLocaleString(LOC) }) + (res.failed ? t(", {n} could not be read", { n: res.failed }) : "") + ".");
   plan = null; renderPlan(null); $("btnCollect").textContent = t("Download"); $("btnCollect").disabled = true;
   await refreshProject();
 }
@@ -449,7 +450,7 @@ const exportName = (ext) => `meter-labels_${(S.onDevice ? location.host : "local
 function exportCsv(where) {
   if (!S.crops.length) { status(where, t("Nothing to export yet."), true); return; }
   saveFile(exportName("csv"), toCsv(exportRows(false)), "text/csv");
-  status(where, t("Exported the labels of {n} images (CSV).", { n: S.crops.length.toLocaleString() }));
+  status(where, t("Exported the labels of {n} images (CSV).", { n: S.crops.length.toLocaleString(LOC) }));
 }
 async function exportZip(where) {
   if (!S.crops.length) { status(where, t("Nothing to export yet."), true); return; }
@@ -461,11 +462,11 @@ async function exportZip(where) {
     for (const { c, row } of rows) {
       const b = await store.getJpeg(c.id);
       if (b) files[row.path] = [b, { level: 0 }]; // JPEGs don't compress further
-      if (++n % 500 === 0) status(where, t("Packing {i} of {n} images…", { i: n.toLocaleString(), n: rows.length.toLocaleString() }));
+      if (++n % 500 === 0) status(where, t("Packing {i} of {n} images…", { i: n.toLocaleString(LOC), n: rows.length.toLocaleString(LOC) }));
     }
     const out = await new Promise((res, rej) => zip(files, (err, data) => (err ? rej(err) : res(data))));
     saveFile(exportName("zip"), out, "application/zip");
-    status(where, t("Exported {n} images with their labels ({mb} MB). Import it here or on another computer with “Import a labelled dataset zip”.", { n: rows.length.toLocaleString(), mb: (out.length / 1e6).toFixed(1) }));
+    status(where, t("Exported {n} images with their labels ({mb} MB). Import it here or on another computer with “Import a labelled dataset zip”.", { n: rows.length.toLocaleString(LOC), mb: (out.length / 1e6).toFixed(1) }));
   } catch (e) { status(where, t("Export failed: {err}", { err: e.message }), true); }
   finally { idle(); }
 }
@@ -862,7 +863,7 @@ async function runTrain() {
   const t0 = performance.now();
   // 1. train without the test images, to compare with the installed model on them
   trainCtx = { epochs, history: [], phase: 0, phases: final ? 2 : 1, label: final ? t("Step 1 of 2 (for the comparison): ") : "" };
-  status("trainStatus", trainCtx.label + t("training on {n} images, testing on {m} from each wheel’s newest days…", { n: set.trainIdx.length.toLocaleString(), m: set.testIdx.length.toLocaleString() }));
+  status("trainStatus", trainCtx.label + t("training on {n} images, testing on {m} from each wheel’s newest days…", { n: set.trainIdx.length.toLocaleString(LOC), m: set.testIdx.length.toLocaleString(LOC) }));
   const res = await trainOnce(set, filters, dense, epochs);
   S.set = set; S.compare = compareOnTest(set, res.probs);
   let calib = set.trainIdx.slice(0, 300), kept = res.bestEpoch, trainN = set.trainIdx.length;
@@ -870,7 +871,7 @@ async function runTrain() {
   if (final && !S.stop) {
     const all = buildTrainSet(S.crops, S.eff, { includeUnconfirmed, all: true });
     trainCtx = { ...trainCtx, phase: 1, label: t("Step 2 of 2 (final model, all images): ") };
-    status("trainStatus", trainCtx.label + t("training on {n} images…", { n: all.trainIdx.length.toLocaleString() }));
+    status("trainStatus", trainCtx.label + t("training on {n} images…", { n: all.trainIdx.length.toLocaleString(LOC) }));
     const res2 = await trainOnce(all, filters, dense, epochs);
     calib = all.trainIdx.slice(0, 300); kept = res2.bestEpoch; trainN = all.trainIdx.length;
   }
@@ -887,7 +888,7 @@ async function runTrain() {
   S.model = { name, bytes, at: Date.now(), acc: tot.n ? tot.m / tot.n : null, compareN: tot.dn, final: final && !S.stop, trainN,
     accOnDev: fair ? tot.md / tot.dn : null, devAcc: fair ? tot.d / tot.dn : null };
   await store.kvSet("lastModel", S.model);
-  status("trainStatus", t("Done in {m} min (kept epoch {e}). Model {kb} KB, trained on {n} images", { m: ((performance.now() - t0) / 60000).toFixed(1), e: kept + 1, kb: (bytes.length / 1024).toFixed(0), n: trainN.toLocaleString() }) +
+  status("trainStatus", t("Done in {m} min (kept epoch {e}). Model {kb} KB, trained on {n} images", { m: ((performance.now() - t0) / 60000).toFixed(1), e: kept + 1, kb: (bytes.length / 1024).toFixed(0), n: trainN.toLocaleString(LOC) }) +
     (S.model.final ? t(", the test images included") : "") + ".");
   renderCompare(); renderModel();
   return S.model;
@@ -924,7 +925,7 @@ function renderModel() {
   const m = S.model;
   $("btnInstall").disabled = !m || !S.onDevice; $("btnDownload").disabled = !m;
   if (m) $("fname").value = m.name;
-  pill("installPill", m ? "model of {date}" : "no model yet", "", { date: m ? new Date(m.at).toLocaleString() : "" });
+  pill("installPill", m ? "model of {date}" : "no model yet", "", { date: m ? new Date(m.at).toLocaleString(LOC, { dateStyle: "short", timeStyle: "short" }) : "" });
 }
 $("btnDownload").addEventListener("click", () => {
   const m = S.model; if (!m) return;
