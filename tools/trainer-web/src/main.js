@@ -13,6 +13,7 @@ import { configChecks, coverage, MIN_PER_DIGIT } from "./readiness.js";
 import { LABELS, effective, steadyLabels } from "./labels.js";
 import * as llm from "./llm.js";
 import { buildTrainSet, compareOnTest } from "./trainset.js";
+import { initHints, pillHint, HINT, statusHint, MIN_COMPARE } from "./hints.js";
 import TrainWorker from "./worker.js?worker&inline";
 
 const $ = (id) => document.getElementById(id);
@@ -22,7 +23,6 @@ const S = {
   set: null, compare: null, model: null, busy: null, stop: false,
 };
 const baseTitle = document.title;
-const MIN_COMPARE = 100; // test images the device read, needed to call one model better
 const DEBUG = location.search.includes("debug");
 const tlog = (label, t0) => { if (DEBUG) console.log(`[timing] ${label}: ${(performance.now() - t0).toFixed(0)} ms`); };
 
@@ -56,8 +56,10 @@ function status(id, text, bad = false) {
 const setBar = (id, frac) => { $(id).style.transform = `scaleX(${Math.max(0, Math.min(1, frac)).toFixed(3)})`; };
 function pill(id, text, kind = "") {
   const el = $(id); el.textContent = text; el.className = `pill ${kind}`;
+  const hint = pillHint(id, text);
+  el.dataset.hint = hint; el.tabIndex = hint ? 0 : -1;
   const np = document.querySelector(`nav.steps .np[data-for="${id}"]`);
-  if (np) { np.textContent = text; np.className = `np ${kind}`; }
+  if (np) { np.textContent = text; np.className = `np ${kind}`; np.dataset.hint = hint; }
   renderSummary();
 }
 const title = (t) => { document.title = t ? `${t} · ${baseTitle}` : baseTitle; };
@@ -123,7 +125,7 @@ document.querySelectorAll("section[data-step]").forEach((sec) => {
 function renderSummary() {
   const el = $("summary"); if (!el) return;
   el.innerHTML = STEPS.slice(1).map((st, i) =>
-    `<button type="button" data-go="${st}">${i + 1} · ${STEP_NAMES[st]}<span>${esc($(STEP_PILL[st])?.textContent || "–")}</span></button>`).join("");
+    `<button type="button" data-go="${st}">${i + 1} · ${STEP_NAMES[st]}<span data-hint="${esc($(STEP_PILL[st])?.dataset.hint || "")}">${esc($(STEP_PILL[st])?.textContent || "–")}</span></button>`).join("");
 }
 $("summary").addEventListener("click", (e) => { const b = e.target.closest("button[data-go]"); if (b) show(b.dataset.go); });
 
@@ -204,11 +206,13 @@ function scheduleCoverage() {
   clearTimeout(covTimer);
   covTimer = setTimeout(() => { S.cov = coverage(S.crops, S.eff); renderCoverage(); }, 250);
 }
+/** Table heading with a hint (focusable, so it also works by keyboard and on touch). */
+const th = (text, hint) => `<th data-hint="${esc(hint)}" tabindex="0">${esc(text)}</th>`;
 function renderCoverage() {
   if (pop.cell) hidePop(); // its cell is about to be replaced
   const c = S.cov;
   if (!c.rois.length) { $("coverage").innerHTML = `<p class="hint">No images yet. Collect them in step 2.</p>`; status("verdict", ""); pill("labelsPill", "–"); return; }
-  const head = `<tr><th>Wheel</th><th>Images</th><th>Days</th><th>Usable</th><th>To review</th>${LABELS.map((l) => `<th>${l}</th>`).join("")}</tr>`;
+  const head = `<tr>${th("Wheel", HINT.wheel)}${th("Images", HINT.images)}${th("Days", HINT.days)}${th("Usable", HINT.usable)}${th("To review", HINT.toReview)}${LABELS.map((l) => th(l, HINT.digit(l))).join("")}</tr>`;
   const cell = (roi, l, n, cls = "") => (n ? `<td class="cov ${cls}" tabindex="0" data-roi="${esc(roi)}" data-l="${esc(l)}">${n}</td>` : `<td class="${cls}">${n}</td>`);
   const body = c.rois.map((g) => `<tr><td>${esc(g.roi)}${g.rolling ? " ↻" : ""}</td><td>${g.crops}</td><td>${g.days}</td>${cell(g.roi, "*usable", g.usable)}${cell(g.roi, "*review", g.review)}${
     LABELS.map((l, i) => { const n = g.labels[l]; const need = i < 10 || g.rolling; return cell(g.roi, l, n, !need ? "" : n === 0 ? "lo" : n < 15 ? "mid" : ""); }).join("")}</tr>`).join("");
@@ -323,7 +327,7 @@ function perWheelTable(p) {
   }
   const rows = [...w.values()].sort((a, b) => a.roi.localeCompare(b.roi, undefined, { numeric: true }))
     .map((e) => `<tr><td>${esc(e.roi)}</td><td>${e.picked}</td><td>${e.skipped}</td><td>${e.full}</td><td>${e.open}</td></tr>`).join("");
-  return `<table><thead><tr><th>Wheel</th><th>To download</th><th>Skipped</th><th>Readings full</th><th>Readings still short</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<table><thead><tr>${th("Wheel", HINT.wheel)}${th("To download", HINT.toDownload)}${th("Skipped", HINT.skipped)}${th("Readings full", HINT.readingsFull)}${th("Readings still short", HINT.readingsShort)}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 /** Crops already stored per download group (wheel + device reading). */
 function haveByGroup() {
@@ -702,7 +706,7 @@ const tileImages = new IntersectionObserver((entries) => {
 function tile(c, k) {
   const e = S.eff.get(c.id);
   const t = document.createElement("button");
-  t.type = "button"; t.className = `tile st-${e.status}`; t.dataset.k = k;
+  t.type = "button"; t.className = `tile st-${e.status}`; t.dataset.k = k; t.dataset.hint = statusHint[e.status] || "";
   t.setAttribute("aria-selected", k === rev.sel ? "true" : "false");
   const img = document.createElement("img"); img.alt = ""; img.loading = "lazy";
   img.dataset.id = c.id;
@@ -872,7 +876,7 @@ function renderCompare() {
   const rows = S.compare.map((e) => `<tr><td>${esc(e.roi)}</td><td>${e.n}</td><td class="${cls(e.model, e.n)}">${pct(e.model, e.n)}</td>` +
     `<td class="${cls(e.dev, e.devN)}">${pct(e.dev, e.devN)}</td><td>${e.t}</td><td>${pct(e.tModel, e.t)}</td></tr>`).join("");
   const m = S.model;
-  $("evalTable").innerHTML = `<table><thead><tr><th>Wheel</th><th>Test images</th><th>New model</th><th>Device now</th><th>Between digits</th><th>New model</th></tr></thead><tbody>${rows}</tbody></table>
+  $("evalTable").innerHTML = `<table><thead><tr>${th("Wheel", HINT.wheel)}${th("Test images", HINT.testImages)}${th("New model", HINT.newModel)}${th("Device now", HINT.deviceNow)}${th("Between digits", HINT.between)}${th("New model", HINT.newModelBetween)}</tr></thead><tbody>${rows}</tbody></table>
     <p class="hint">Test images come from the newest days and were not used for training. "Device now" is what the installed model read on the same images. ${
       m?.devAcc != null ? `On the ${m.compareN} test images the device read itself: new ${(m.accOnDev * 100).toFixed(1)}%, installed ${(m.devAcc * 100).toFixed(1)}%. Where the label came from the device, the installed model's score is flattered.`
         : `Only ${m?.compareN ?? 0} test image${(m?.compareN ?? 0) === 1 ? " was" : "s were"} read by the device (${MIN_COMPARE} needed), so the two models are not compared; collect more days.`}</p>`;
@@ -987,7 +991,19 @@ $("btnAutoStop").addEventListener("click", () => { S.stop = true; worker.postMes
 window.addEventListener("beforeunload", (e) => { if (S.busy) { e.preventDefault(); e.returnValue = ""; } });
 
 // ---------------------------------------------------------------- start
+/** Hints for fixed parts of the page: settings fields and the chart legend. */
+function staticHints() {
+  const at = (sel, hint) => { const el = document.querySelector(sel); if (el) el.dataset.hint = hint; };
+  at('label[for="days"]', HINT.daysBack); at('label[for="quota"]', HINT.perReading);
+  at('label[for="size"]', HINT.modelSize); at('label[for="epochs"]', HINT.epochs);
+  at('label[for="batch"]', HINT.batch); at('label[for="lr"]', HINT.lr);
+  at('label[for="llmN"]', HINT.llmN); at('label[for="revStatus"]', HINT.show);
+  const lg = document.querySelectorAll(".legend > span");
+  if (lg[0]) { lg[0].dataset.hint = HINT.trainLoss; lg[0].tabIndex = 0; }
+  if (lg[1]) { lg[1].dataset.hint = HINT.valLoss; lg[1].tabIndex = 0; }
+}
 async function init() {
+  initHints(); staticHints();
   show(location.hash.slice(1) || "start");
   for (const o of $("size").options) {
     const [f, d] = parseSize(o.value);

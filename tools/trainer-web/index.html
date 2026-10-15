@@ -234,6 +234,12 @@ ol.log li.head:first-child { margin-top: 0; }
 /* label preview */
 .pop { position: fixed; z-index: var(--z-pop); width: 372px; max-width: calc(100% - var(--space-md)); display: grid; gap: var(--space-xs); padding: var(--space-xs) var(--space-sm);
   background: var(--color-raised); border: 1px solid var(--color-accent); border-radius: var(--radius); box-shadow: var(--shadow-pop); pointer-events: none; }
+/* shared hint tooltip (src/hints.js): any [data-hint] element */
+.tip { position: fixed; z-index: var(--z-pop); max-width: min(340px, calc(100% - var(--space-md))); padding: var(--space-xs) var(--space-sm);
+  font: var(--text-sm)/1.45 var(--font-body); color: var(--color-ink); text-transform: none; letter-spacing: 0; text-align: left; white-space: normal;
+  background: var(--color-raised); border: var(--rule); border-radius: var(--radius); box-shadow: var(--shadow-pop); pointer-events: none; }
+th[data-hint], .legend span[data-hint], .pill[data-hint]:not([data-hint=""]) { cursor: help; }
+th[data-hint], .legend span[data-hint] { text-decoration: underline dotted var(--color-muted); text-underline-offset: 3px; }
 .pop .ph { font: 600 var(--text-sm) var(--font-display); color: var(--color-ink); }
 .pop .pf { font-size: var(--text-xs); color: var(--color-muted); }
 .pop .pg { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--space-xs) var(--space-2xs); }
