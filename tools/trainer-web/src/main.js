@@ -1,5 +1,6 @@
 // Page logic. TensorFlow.js runs in src/worker.js (keeps going in a background tab);
 // device access in device.js, stored project data in store.js.
+import "./fonts.css";
 import { unzip, zip } from "fflate";
 import { decodeBrowser, parseCsv, IN_W, IN_H, PIX } from "./dataset.js";
 import { resizeBilinear } from "./resize.js";
@@ -52,7 +53,7 @@ function status(id, text, bad = false) {
   else { el.textContent = text; el.classList.toggle("bad", bad); }
   if (S.busy && (id === S.where || id === "autoStatus")) $("activityText").textContent = `${S.busy}: ${text}`;
 }
-const setBar = (id, frac) => { $(id).style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`; };
+const setBar = (id, frac) => { $(id).style.transform = `scaleX(${Math.max(0, Math.min(1, frac)).toFixed(3)})`; };
 function pill(id, text, kind = "") {
   const el = $(id); el.textContent = text; el.className = `pill ${kind}`;
   const np = document.querySelector(`nav.steps .np[data-for="${id}"]`);
@@ -70,7 +71,7 @@ function lockActions(on) {
 }
 const WHERE_STEP = { setupStatus: "setup", collectStatus: "collect", llmStatus: "labels", trainStatus: "train", installStatus: "install", autoStatus: "start" };
 function busy(name, where = "autoStatus") {
-  if (S.busy) { status(where, `Wait for "${S.busy}" to finish first.`, true); return false; }
+  if (S.busy) { status(where, `Wait for “${S.busy}” to finish first.`, true); return false; }
   S.busy = name; S.where = where; S.stop = false; $("bgNote").hidden = false; lockActions(true);
   $("activityText").textContent = `${name}…`; $("activity").hidden = false;
   return true;
@@ -450,7 +451,7 @@ async function exportZip(where) {
     }
     const out = await new Promise((res, rej) => zip(files, (err, data) => (err ? rej(err) : res(data))));
     saveFile(exportName("zip"), out, "application/zip");
-    status(where, `Exported ${rows.length.toLocaleString()} images with their labels (${(out.length / 1e6).toFixed(1)} MB). Import it here or on another computer with "Import a labelled dataset zip".`);
+    status(where, `Exported ${rows.length.toLocaleString()} images with their labels (${(out.length / 1e6).toFixed(1)} MB). Import it here or on another computer with “Import a labelled dataset zip”.`);
   } catch (e) { status(where, `Export failed: ${e.message}`, true); }
   finally { idle(); }
 }
@@ -803,16 +804,22 @@ function onEpoch(e) {
     `validation accuracy ${(e.valAcc * 100).toFixed(1)}%  ${e.seconds.toFixed(1)} s/epoch  about ${Math.ceil(((e.epochs - e.epoch - 1) * e.seconds) / 60)} min left`);
 }
 function drawChart() {
-  const c = $("chart"), ctx = c.getContext("2d"), W = c.width, H = c.height, h = trainCtx.history;
+  const c = $("chart"), h = trainCtx.history;
+  const dpr = window.devicePixelRatio || 1, cssW = c.clientWidth || 900, cssH = c.clientHeight || 130;
+  if (c.width !== Math.round(cssW * dpr)) { c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr); }
+  const ctx = c.getContext("2d"), W = cssW, H = cssH;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const css = getComputedStyle(document.documentElement);
+  const tok = (n) => css.getPropertyValue(n).trim();
   ctx.clearRect(0, 0, W, H);
   if (!h.length) return;
   const max = Math.max(...h.map((e) => Math.max(e.loss, e.valLoss)));
-  const x = (i) => 30 + (i / Math.max(1, trainCtx.epochs - 1)) * (W - 40), y = (v) => H - 14 - (v / max) * (H - 28);
-  ctx.fillStyle = css.getPropertyValue("--muted"); ctx.font = "11px sans-serif";
+  const x = (i) => 34 + (i / Math.max(1, trainCtx.epochs - 1)) * (W - 44), y = (v) => H - 14 - (v / max) * (H - 28);
+  ctx.strokeStyle = tok("--color-rule"); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(34, y(0) + 0.5); ctx.lineTo(W - 10, y(0) + 0.5); ctx.stroke();
+  ctx.fillStyle = tok("--color-muted"); ctx.font = `11px ${tok("--font-mono")}`;
   ctx.fillText(max.toFixed(2), 2, 14); ctx.fillText("0", 2, H - 10);
-  for (const [key, color] of [["loss", "--accent"], ["valLoss", "--warn"]]) {
-    ctx.strokeStyle = css.getPropertyValue(color); ctx.lineWidth = 2; ctx.beginPath();
+  for (const [key, color] of [["loss", "--color-accent"], ["valLoss", "--color-warn"]]) {
+    ctx.strokeStyle = tok(color); ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.beginPath();
     h.forEach((e, i) => (i ? ctx.lineTo(x(i), y(e[key])) : ctx.moveTo(x(i), y(e[key])))); ctx.stroke();
   }
 }

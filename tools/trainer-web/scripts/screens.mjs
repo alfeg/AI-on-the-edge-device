@@ -1,6 +1,7 @@
-// Screenshots of every wizard step (layout check). Read-only on the device: on the
-// collect step it runs "Check for new images" (listing only, no downloads).
-//   node scripts/screens.mjs http://localhost:4173/trainer.html <outdir> [dark|light] [width]
+// Screenshots of every wizard step (layout check), read-only on the device: with COLLECT=n
+// it lists and downloads n images first so the label/review steps have data.
+//   DEVICE=http://<ip> npx vite preview --port 4173 &
+//   COLLECT=150 node scripts/screens.mjs http://localhost:4173/trainer.html <outdir> [dark|light] [width]
 import fs from "node:fs";
 import puppeteer from "puppeteer-core";
 
@@ -10,24 +11,35 @@ const exe = process.env.BROWSER || "C:/Program Files (x86)/Microsoft/Edge/Applic
 const browser = await puppeteer.launch({ executablePath: exe, headless: "new", protocolTimeout: 0, args: ["--use-angle=d3d11"] });
 const page = await browser.newPage();
 page.on("pageerror", (e) => console.log("pageerror:", e.message));
-await page.setViewport({ width: +width, height: 900 });
+await page.setViewport({ width: +width, height: 900, deviceScaleFactor: 1 });
 await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: scheme }]);
 await page.goto(url);
-await page.waitForFunction(() => !document.getElementById("bDevice").textContent.includes("…"), { polling: 300 });
-await new Promise((r) => setTimeout(r, 1500));
+const wait = (fn, a) => page.waitForFunction(fn, { polling: 300, timeout: 0 }, a);
+await wait(() => !document.getElementById("bDevice").textContent.includes("…"));
+await new Promise((r) => setTimeout(r, 800));
+const go = (step) => page.click(`nav.steps button[data-step="${step}"]`);
+const shot = (name) => page.screenshot({ path: `${out}/${name}-${scheme}-${width}.png`, fullPage: true });
+if (process.env.COLLECT) {
+  await go("collect");
+  await page.$eval("#days", (e) => { e.value = "1"; });
+  await page.click("#btnScan");
+  await wait(() => !document.getElementById("btnScan").disabled && /^Checked/.test(document.getElementById("collectStatus").textContent));
+  await page.click("#btnCollect");
+  await wait((n) => { const m = document.getElementById("collectStatus").textContent.match(/^([\d,]+) of/); return m && +m[1].replace(/,/g, "") >= n; }, +process.env.COLLECT);
+  await shot("collect-running");
+  await page.click("#btnCollectStop");
+  await wait(() => !document.getElementById("btnScan").disabled);
+  await page.click("#btnScan");
+  await wait(() => !document.getElementById("btnScan").disabled && /^Checked/.test(document.getElementById("collectStatus").textContent));
+}
 for (const step of ["start", "setup", "collect", "labels", "train", "install"]) {
-  await page.click(`nav.steps button[data-step="${step}"]`);
-  if (step === "collect" && process.env.SCAN) {
-    await page.$eval("#days", (e) => { e.value = "2"; });
-    await page.click("#btnScan");
-    await page.waitForFunction(() => /^Checked|stopped|failed|needs/.test(document.getElementById("collectStatus").textContent), { polling: 500, timeout: 0 });
-    console.log("scan:", await page.$eval("#collectStatus", (e) => e.textContent));
-    console.log("plan:", await page.$eval("#plan", (e) => e.innerText.replace(/\n/g, " | ")));
-    console.log("button:", await page.$eval("#btnCollect", (e) => e.textContent));
+  await go(step);
+  if (step === "labels") {
+    await page.evaluate(() => { document.getElementById("llmBox").open = true; });
+    const t = await page.$("#revGrid .tile"); if (t) { await t.click(); }
   }
-  if (step === "labels") await page.evaluate(() => { document.getElementById("llmBox").open = true; });
-  await new Promise((r) => setTimeout(r, 400));
-  await page.screenshot({ path: `${out}/${step}-${scheme}.png`, fullPage: true });
+  await new Promise((r) => setTimeout(r, 500));
+  await shot(step);
 }
 await browser.close();
 console.log("saved to", out);

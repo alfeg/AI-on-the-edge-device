@@ -1,0 +1,4 @@
+[
+  { "date": "2026-10-15", "macrostructure": "Workbench (app wizard)", "theme": "Cobalt", "enrichment": "none", "nav": "step rail", "footer": "none (app)",
+    "brief": "Meter model trainer · device-hosted wizard: collect, label, train, install (redesign of the v0.3 page)" }
+]
