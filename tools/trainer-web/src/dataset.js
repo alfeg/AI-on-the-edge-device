@@ -8,13 +8,27 @@ import { resizeBilinear } from "./resize.js";
 
 export const IN_H = 32, IN_W = 20, IN_C = 3, PIX = IN_H * IN_W * IN_C;
 
+/** CSV with a header row; handles quoted cells ("a,b", "say ""hi""") and CRLF. */
 export function parseCsv(text) {
-  const lines = text.split(/\r?\n/).filter((l) => l.length);
-  const head = lines.shift().split(",");
-  return lines.map((l) => {
-    const v = l.split(",");
-    return Object.fromEntries(head.map((h, i) => [h, v[i] ?? ""]));
-  });
+  const rows = [];
+  let row = [], cell = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+      else cell += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(cell); cell = ""; }
+    else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell); cell = "";
+      if (row.length > 1 || row[0] !== "") rows.push(row);
+      row = [];
+    } else cell += ch;
+  }
+  if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+  const head = rows.shift() || [];
+  return rows.map((v) => Object.fromEntries(head.map((h, i) => [h, v[i] ?? ""])));
 }
 
 /** "7" -> one-hot, "7/8" -> 0.5/0.5 (soft target for a wheel between two digits) */

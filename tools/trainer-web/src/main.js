@@ -1,6 +1,6 @@
 // Page logic. TensorFlow.js runs in src/worker.js (keeps going in a background tab);
 // device access in device.js, stored project data in store.js.
-import { unzip } from "fflate";
+import { unzip, zip } from "fflate";
 import { decodeBrowser, parseCsv, IN_W, IN_H, PIX } from "./dataset.js";
 import { resizeBilinear } from "./resize.js";
 import { countMacs } from "./arch.js";
@@ -352,17 +352,23 @@ $("fileZip").addEventListener("change", async (e) => {
     const buf = new Uint8Array(await f.arrayBuffer());
     const files = await new Promise((res, rej) => unzip(buf, (err, out) => (err ? rej(err) : res(out))));
     if (!files["labels.csv"]) throw new Error("labels.csv is missing from the zip");
-    const rows = parseCsv(new TextDecoder().decode(files["labels.csv"])).filter((r) => r.label);
+    // plain datasets: every label counts as yours; exports from this page carry the sources
+    const rows = parseCsv(new TextDecoder().decode(files["labels.csv"])).filter((r) => r.label || r.human || r.llm || r.device);
+    const rich = rows.length && "status" in rows[0];
     let batch = [], labels = [], n = 0;
     for (const r of rows) {
       const bytes = files[r.path]; if (!bytes) continue;
       try {
         const im = await decodeBrowser(bytes);
         const id = `zip/${f.name}/${r.path}`;
-        const roi = r.src ? `${r.src}.dig${r.pos}` : `dig${r.pos}`;
-        batch.push({ crop: { id, roi, ts: r.ts || "00000000-000000", pred: null, rejected: false, w: im.width, h: im.height,
+        const roi = r.roi || (r.src ? `${r.src}.dig${r.pos}` : `dig${r.pos}`);
+        const pred = rich && r.device !== "" ? +r.device : null;
+        batch.push({ crop: { id, roi, ts: r.ts || "00000000-000000", pred, rejected: rich && r.rejected === "1", w: im.width, h: im.height,
           pix: resizeBilinear(im.data, im.width, im.height, IN_W, IN_H, 4) }, jpeg: bytes });
-        labels.push({ id, human: r.label });
+        const rec = { id };
+        if (!rich) rec.human = r.label;
+        else { if (r.human) rec.human = r.human; if (r.llm) { rec.llm = r.llm; rec.llmModel = r.llm_model || "import"; } }
+        labels.push(rec);
       } catch { /* skip unreadable */ }
       if (batch.length >= 200) { await store.putCrops(batch); await store.putLabels(labels); n += batch.length; batch = []; labels = []; status("collectStatus", `Imported ${n} of ${rows.length}…`); }
     }
@@ -372,6 +378,56 @@ $("fileZip").addEventListener("change", async (e) => {
   } catch (err) { status("collectStatus", `Import failed: ${err.message || err}`, true); }
   finally { idle(); e.target.value = ""; }
 });
+
+// ---- export: the same zip format the import reads, plus every label source
+const csvCell = (v) => { const t = v == null ? "" : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+function exportRows(withImages) {
+  return S.crops.map((c, i) => {
+    const e = S.eff.get(c.id) || {}, r = S.labels.get(c.id) || {};
+    const name = `images/${String(i).padStart(6, "0")}.jpg`;
+    return { c, row: {
+      path: withImages ? name : c.id, src: S.onDevice ? location.host : "", roi: c.roi, pos: c.roi.replace(/^.*?(\d+)$/, "$1"),
+      label: e.label ?? "", status: e.status ?? "", sources: e.sources ?? "", ts: c.ts, split: "",
+      device: c.pred ?? "", rejected: c.rejected ? 1 : 0, llm: r.llm ?? "", llm_model: r.llmModel ?? "", human: r.human ?? "", orig_id: c.id } };
+  });
+}
+const COLS = ["path", "src", "roi", "pos", "label", "status", "sources", "ts", "split", "device", "rejected", "llm", "llm_model", "human", "orig_id"];
+const toCsv = (rows) => [COLS.join(","), ...rows.map(({ row }) => COLS.map((k) => csvCell(row[k])).join(","))].join("\n") + "\n";
+function saveFile(name, data, type) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([data], { type }));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+const stamp = () => new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
+const exportName = (ext) => `meter-labels_${(S.onDevice ? location.host : "local").replace(/[^\w.-]/g, "_")}_${stamp()}.${ext}`;
+function exportCsv(where) {
+  if (!S.crops.length) { status(where, "Nothing to export yet.", true); return; }
+  saveFile(exportName("csv"), toCsv(exportRows(false)), "text/csv");
+  status(where, `Exported the labels of ${S.crops.length.toLocaleString()} images (CSV).`);
+}
+async function exportZip(where) {
+  if (!S.crops.length) { status(where, "Nothing to export yet.", true); return; }
+  if (!busy("export", where)) return;
+  try {
+    const rows = exportRows(true);
+    const files = { "labels.csv": new TextEncoder().encode(toCsv(rows)) };
+    let n = 0;
+    for (const { c, row } of rows) {
+      const b = await store.getJpeg(c.id);
+      if (b) files[row.path] = [b, { level: 0 }]; // JPEGs don't compress further
+      if (++n % 500 === 0) status(where, `Packing ${n.toLocaleString()} of ${rows.length.toLocaleString()} images…`);
+    }
+    const out = await new Promise((res, rej) => zip(files, (err, data) => (err ? rej(err) : res(data))));
+    saveFile(exportName("zip"), out, "application/zip");
+    status(where, `Exported ${rows.length.toLocaleString()} images with their labels (${(out.length / 1e6).toFixed(1)} MB). Import it here or on another computer with "Import a labelled dataset zip".`);
+  } catch (e) { status(where, `Export failed: ${e.message}`, true); }
+  finally { idle(); }
+}
+$("btnExportCsv").addEventListener("click", () => exportCsv("collectStatus"));
+$("btnExportZip").addEventListener("click", () => exportZip("collectStatus"));
+$("btnExportCsv2").addEventListener("click", () => exportCsv("revStatusLine"));
+$("btnExportZip2").addEventListener("click", () => exportZip("revStatusLine"));
 
 $("btnClear").addEventListener("click", () => { $("clearConfirm").hidden = false; });
 $("btnClearNo").addEventListener("click", () => { $("clearConfirm").hidden = true; });

@@ -178,6 +178,8 @@ td.cov:hover, td.cov:focus-visible { background: var(--accent-soft); outline: no
     <div class="status" id="collectStatus"></div>
     <div class="more">
       <button class="link act" id="btnImport" type="button">Import a labelled dataset zip</button><input type="file" id="fileZip" accept=".zip" hidden>
+      <button class="link act" id="btnExportZip" type="button">Export dataset (zip with images)</button>
+      <button class="link act" id="btnExportCsv" type="button">Export labels (CSV)</button>
       <button class="link danger act" id="btnClear" type="button">Delete all collected data</button>
     </div>
     <div class="confirm" id="clearConfirm" hidden>Delete all images, labels and models stored in this browser?
@@ -226,6 +228,7 @@ td.cov:hover, td.cov:focus-visible { background: var(--accent-soft); outline: no
     <p class="hint">Click an image, then: <b>0–9</b> digit · <b>T</b> then a digit for between two digits (T 6 = 6/7) · <b>X</b> unusable · <b>Backspace</b> remove your label · <b>← →</b> move · <b>Enter</b> accept the shown label. Group by group: fix the wrong ones, then <b>A</b> approves all the others as shown and moves on · <b>[ ]</b> previous / next group.</p>
     <div class="grid" id="revGrid" role="listbox" aria-label="Images to review"></div>
     <div class="row"><button id="revMore" hidden>Show more</button></div>
+    <div class="more"><button class="link act" id="btnExportZip2" type="button">Export dataset (zip with images)</button><button class="link act" id="btnExportCsv2" type="button">Export labels (CSV)</button></div>
   </section>
 
   <section data-step="train" id="sTrain" hidden>
