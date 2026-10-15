@@ -7,14 +7,17 @@ no CDN links, so it works on a network without internet access.
 
 ## What the page does (served from the device)
 
+A wizard: Start (overview, automatic run) and five steps, each reachable at any time.
+
 1. **Device setup:** reads `config.ini` and checks that digit images are saved
    (`ROIImagesLocation`) and kept long enough (`ROIImagesRetention`). One click fixes it:
    the config is backed up to `/config/config_<ts>.ini.bak`, pushed right after a reading
    round (MD5-checked) and the device restarts.
-2. **Collect:** copies crops from `/log/digit/<day>/<hour>/` into IndexedDB. The device's
-   reading is in each file name. Unchanged crops of a resting wheel are mostly skipped;
-   changes, in-between positions and rejected readings are kept. Resumable; finished hours
-   are remembered. A labelled dataset zip can be imported too.
+2. **Collect:** first a scan lists the new `/log/digit/<day>/<hour>/` folders and shows how many images there are to download and how long it takes; then crops go into IndexedDB. The device's
+   reading is in each file name; crops are grouped by wheel + reading (digit, between two
+   digits, rejected) and only "images per reading" (default 100) are kept per group,
+   spread over the days. Resumable; finished hours are remembered. A labelled dataset zip
+   can be imported too.
 3. **Labels:** sources are the device reading, steady runs (≥4 identical readings), an AI
    server (Ollama `/api/chat` or OpenAI-compatible `/v1/chat/completions`) and your
    review. Two agreeing sources = confirmed. Only yours and confirmed labels train by

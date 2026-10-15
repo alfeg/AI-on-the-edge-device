@@ -7,7 +7,7 @@ import { countMacs } from "./arch.js";
 import * as dev from "./device.js";
 import { getKey, setKey } from "./ini.js";
 import * as store from "./store.js";
-import { collect } from "./collect.js";
+import { scan, download, groupOf } from "./collect.js";
 import { configChecks, coverage, MIN_PER_DIGIT } from "./readiness.js";
 import { LABELS, effective, steadyLabels } from "./labels.js";
 import * as llm from "./llm.js";
@@ -26,9 +26,17 @@ const DEBUG = location.search.includes("debug");
 const tlog = (label, t0) => { if (DEBUG) console.log(`[timing] ${label}: ${(performance.now() - t0).toFixed(0)} ms`); };
 
 // ---------------------------------------------------------------- small UI helpers
-function status(id, text, bad = false) { const el = $(id); el.textContent = text; el.classList.toggle("bad", bad); }
+function status(id, text, bad = false) {
+  const el = $(id); el.textContent = text; el.classList.toggle("bad", bad);
+  if (S.busy && (id === S.where || id === "autoStatus")) $("activityText").textContent = `${S.busy}: ${text}`;
+}
 const setBar = (id, frac) => { $(id).style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`; };
-function pill(id, text, kind = "") { const el = $(id); el.textContent = text; el.className = `pill ${kind}`; }
+function pill(id, text, kind = "") {
+  const el = $(id); el.textContent = text; el.className = `pill ${kind}`;
+  const np = document.querySelector(`nav.steps .np[data-for="${id}"]`);
+  if (np) { np.textContent = text; np.className = `np ${kind}`; }
+  renderSummary();
+}
 const title = (t) => { document.title = t ? `${t} · ${baseTitle}` : baseTitle; };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const parseSize = (v) => v.split("|").map((s) => s.split(",").map(Number));
@@ -38,11 +46,55 @@ function lockActions(on) {
     if (on) { b.dataset.was = b.disabled; b.disabled = true; } else if ("was" in b.dataset) { b.disabled = b.dataset.was === "true"; delete b.dataset.was; }
   });
 }
+const WHERE_STEP = { setupStatus: "setup", collectStatus: "collect", llmStatus: "labels", trainStatus: "train", installStatus: "install", autoStatus: "start" };
 function busy(name, where = "autoStatus") {
   if (S.busy) { status(where, `Wait for "${S.busy}" to finish first.`, true); return false; }
-  S.busy = name; S.stop = false; $("bgNote").hidden = false; lockActions(true); return true;
+  S.busy = name; S.where = where; S.stop = false; $("bgNote").hidden = false; lockActions(true);
+  $("activityText").textContent = `${name}…`; $("activity").hidden = false;
+  return true;
 }
-function idle() { S.busy = null; $("bgNote").hidden = true; title(""); lockActions(false); renderModel(); }
+function idle() { S.busy = null; $("bgNote").hidden = true; $("activity").hidden = true; title(""); lockActions(false); renderModel(); }
+
+// ---------------------------------------------------------------- wizard navigation
+const STEPS = ["start", "setup", "collect", "labels", "train", "install"];
+const STEP_NAMES = { start: "Start", setup: "Device", collect: "Collect", labels: "Labels", train: "Train", install: "Install" };
+const STEP_PILL = { setup: "setupPill", collect: "collectPill", labels: "labelsPill", train: "trainPill", install: "installPill" };
+function show(step) {
+  if (!STEPS.includes(step)) step = "start";
+  document.querySelectorAll("section[data-step]").forEach((sec) => { sec.hidden = sec.dataset.step !== step; });
+  document.querySelectorAll("nav.steps button").forEach((b) => b.removeAttribute("aria-current"));
+  document.querySelector(`nav.steps button[data-step="${step}"]`)?.setAttribute("aria-current", "step");
+  if (step !== "labels") $("drawer").hidden = true;
+  if (location.hash !== `#${step}`) history.replaceState(null, "", `#${step}`);
+  window.scrollTo({ top: 0 });
+}
+document.querySelectorAll("nav.steps button").forEach((b) => b.addEventListener("click", () => show(b.dataset.step)));
+window.addEventListener("hashchange", () => show(location.hash.slice(1)));
+$("activityGo").addEventListener("click", () => show(WHERE_STEP[S.where] || "start"));
+// Back / Next at the bottom of every step
+document.querySelectorAll("section[data-step]").forEach((sec) => {
+  const i = STEPS.indexOf(sec.dataset.step);
+  const nav = document.createElement("div"); nav.className = "stepnav";
+  if (i > 0) {
+    const back = document.createElement("button"); back.type = "button";
+    back.textContent = `← ${STEP_NAMES[STEPS[i - 1]]}`;
+    back.addEventListener("click", () => show(STEPS[i - 1]));
+    nav.append(back);
+  } else nav.append(document.createElement("span"));
+  if (i < STEPS.length - 1) {
+    const next = document.createElement("button"); next.type = "button"; next.className = "primary";
+    next.textContent = `Next: ${STEP_NAMES[STEPS[i + 1]]} →`;
+    next.addEventListener("click", () => show(STEPS[i + 1]));
+    nav.append(next);
+  }
+  sec.append(nav);
+});
+function renderSummary() {
+  const el = $("summary"); if (!el) return;
+  el.innerHTML = STEPS.slice(1).map((st, i) =>
+    `<button type="button" data-go="${st}">${i + 1} · ${STEP_NAMES[st]}<span>${esc($(STEP_PILL[st])?.textContent || "–")}</span></button>`).join("");
+}
+$("summary").addEventListener("click", (e) => { const b = e.target.closest("button[data-go]"); if (b) show(b.dataset.go); });
 
 // ---------------------------------------------------------------- worker
 const worker = new TrainWorker();
@@ -73,10 +125,10 @@ async function refreshSetup() {
   const worst = S.checks.some((c) => c.level === "block") ? "block" : S.checks.some((c) => c.level === "warn") ? "warn" : "ok";
   pill("setupPill", { block: "action needed", warn: "check", ok: "ready" }[worst], { block: "bad", warn: "warn", ok: "ok" }[worst]);
   $("checks").innerHTML = S.checks.map((c, i) => `<li class="lv-${c.level}"><span class="dot"></span><span class="t">${esc(c.title)}</span>
-    ${c.fix ? `<button class="small primary act" data-fix="${i}">${esc(c.fix.label)}</button>` : "<span></span>"}
+    ${c.fix ? `<button class="primary act" data-fix="${i}">${esc(c.fix.label)}</button>` : "<span></span>"}
     <span class="d">${esc(c.detail || "")}</span>
     ${c.fix ? `<span class="confirm d" data-confirm="${i}" hidden>This changes the configuration and restarts the device once.
-      <button class="small primary act" data-yes="${i}">Change and restart</button><button class="small" data-no="${i}">Cancel</button></span>` : ""}</li>`).join("");
+      <button class="primary act" data-yes="${i}">Change and restart</button><button data-no="${i}">Cancel</button></span>` : ""}</li>`).join("");
 }
 $("checks").addEventListener("click", async (e) => {
   const b = e.target.closest("button"); if (!b) return;
@@ -131,26 +183,87 @@ function renderCoverage() {
 }
 
 // ---------------------------------------------------------------- 2. collect
-async function runCollect() {
-  if (!S.onDevice) { status("collectStatus", "Collecting needs the page to be opened from the device.", true); return false; }
-  await store.persist();
+let plan = null;
+const fmtTime = (sec) => (sec < 90 ? `${Math.max(1, Math.round(sec))} s` : sec < 5400 ? `${Math.round(sec / 60)} min` : `${(sec / 3600).toFixed(1)} h`);
+const FILES_PER_S = 3; // what an ESP32-CAM serves; the measured rate replaces it while downloading
+
+function renderPlan(p) {
+  const box = $("plan");
+  if (!p) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `<div><b>${p.toFetch.toLocaleString()}</b><span>new images to download</span></div>
+    <div><b>about ${fmtTime(p.toFetch / FILES_PER_S)}</b><span>at about ${FILES_PER_S} images/s</span></div>
+    <div><b>${p.onDevice.toLocaleString()}</b><span>images in ${p.listed} new hour folders on the device</span></div>
+    <div><b>${p.skippedEnough.toLocaleString()}</b><span>skipped: enough images of that reading already</span></div>
+    <div><b>${p.have.toLocaleString()}</b><span>already here${p.knownHours ? `, plus ${p.knownHours} hours collected earlier` : ""}</span></div>
+    <details class="pw"><summary>Per wheel</summary><div class="tw">${perWheelTable(p)}</div></details>`;
+  $("btnCollect").disabled = !p.toFetch;
+  $("btnCollect").textContent = p.toFetch ? `Download ${p.toFetch.toLocaleString()} images` : "Nothing new to download";
+}
+function perWheelTable(p) {
+  const w = new Map();
+  for (const [g, v] of p.groups) {
+    const [roi, lab] = g.split("|");
+    const e = w.get(roi) || { roi, picked: 0, skipped: 0, full: 0, open: 0 };
+    e.picked += v.picked; e.skipped += v.available - v.picked;
+    if (v.have + v.picked >= +$("quota").value) e.full++; else if (lab !== "rejected") e.open++;
+    w.set(roi, e);
+  }
+  const rows = [...w.values()].sort((a, b) => a.roi.localeCompare(b.roi, undefined, { numeric: true }))
+    .map((e) => `<tr><td>${esc(e.roi)}</td><td>${e.picked}</td><td>${e.skipped}</td><td>${e.full}</td><td>${e.open}</td></tr>`).join("");
+  return `<table><thead><tr><th>Wheel</th><th>To download</th><th>Skipped</th><th>Readings full</th><th>Readings still short</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+/** Crops already stored per download group (wheel + device reading). */
+function haveByGroup() {
+  const m = new Map();
+  for (const c of S.crops) if (c.pred != null) { const g = groupOf(c.roi, c.pred, c.rejected); m.set(g, (m.get(g) || 0) + 1); }
+  return m;
+}
+async function runScan() {
+  if (!S.onDevice) { status("collectStatus", "Collecting needs the page to be opened from the device.", true); return null; }
   status("collectStatus", "Listing the device's image folders…");
-  const res = await collect({
-    days: +$("days").value || 7, shouldStop: () => S.stop,
+  plan = await scan({
+    days: +$("days").value || 7, quota: +$("quota").value || 100, have: haveByGroup(), shouldStop: () => S.stop,
     onProgress: (p) => {
-      status("collectStatus", `${p.folder}: ${p.fetched} new, ${p.skipped} already here${p.failed ? `, ${p.failed} failed` : ""}`);
-      title(`collecting ${p.fetched}`);
+      status("collectStatus", `Listing folder ${p.listed + 1} of ${p.total} (${p.folder})…`);
+      setBar("collectBar", p.listed / Math.max(1, p.total)); title(`checking ${p.listed}/${p.total}`);
     },
   });
-  status("collectStatus", `${S.stop ? "Stopped" : "Done"}: ${res.fetched} new images from ${res.folders} hour folders${res.failed ? `, ${res.failed} could not be read` : ""}.`);
-  await refreshProject();
-  return true;
+  setBar("collectBar", 0);
+  renderPlan(plan);
+  status("collectStatus", plan.complete ? `Checked ${plan.listed} new hour folders in ${fmtTime(plan.listSeconds)}.` : "Check stopped early; the numbers cover the folders listed so far.");
+  return plan;
 }
+async function runDownload() {
+  if (!plan) await runScan();
+  if (!plan?.toFetch) return;
+  await store.persist();
+  const res = await download(plan, {
+    shouldStop: () => S.stop,
+    onProgress: (p) => {
+      const left = p.total - p.fetched - p.failed;
+      setBar("collectBar", (p.fetched + p.failed) / Math.max(1, p.total));
+      status("collectStatus", `${p.fetched.toLocaleString()} of ${p.total.toLocaleString()} downloaded${p.failed ? `, ${p.failed} failed` : ""} · ${p.rate.toFixed(1)} images/s · about ${fmtTime(left / Math.max(0.1, p.rate))} left`);
+      title(`collecting ${Math.round(((p.fetched + p.failed) / Math.max(1, p.total)) * 100)}%`);
+    },
+  });
+  status("collectStatus", `${S.stop ? "Stopped" : "Done"}: ${res.fetched.toLocaleString()} new images${res.failed ? `, ${res.failed} could not be read` : ""}.`);
+  plan = null; renderPlan(null); $("btnCollect").textContent = "Download"; $("btnCollect").disabled = true;
+  await refreshProject();
+}
+async function runCollect() { await runScan(); if (!S.stop) await runDownload(); }
+
+$("btnScan").addEventListener("click", async () => {
+  if (!busy("checking the device", "collectStatus")) return;
+  $("btnCollectStop").disabled = false;
+  try { await runScan(); } catch (e) { status("collectStatus", `Checking failed: ${e.message}`, true); }
+  finally { idle(); $("btnCollectStop").disabled = true; $("btnCollect").disabled = !plan?.toFetch; }
+});
 $("btnCollect").addEventListener("click", async () => {
   if (!busy("collect", "collectStatus")) return;
-  $("btnCollect").disabled = true; $("btnCollectStop").disabled = false;
-  try { await runCollect(); } catch (e) { status("collectStatus", `Collecting failed: ${e.message}`, true); }
-  finally { idle(); $("btnCollect").disabled = false; $("btnCollectStop").disabled = true; }
+  $("btnCollectStop").disabled = false;
+  try { await runDownload(); } catch (e) { status("collectStatus", `Collecting failed: ${e.message}`, true); }
+  finally { idle(); $("btnCollectStop").disabled = true; $("btnCollect").disabled = !plan?.toFetch; }
 });
 $("btnCollectStop").addEventListener("click", () => { S.stop = true; });
 
@@ -533,6 +646,7 @@ window.addEventListener("beforeunload", (e) => { if (S.busy) { e.preventDefault(
 
 // ---------------------------------------------------------------- start
 async function init() {
+  show(location.hash.slice(1) || "start");
   for (const o of $("size").options) {
     const [f, d] = parseSize(o.value);
     o.textContent = o.textContent.replace(/[\d.]+ M ops/, `${(countMacs({ filters: f, dense: d }) / 1e6).toFixed(1)} M ops`);
@@ -547,5 +661,6 @@ async function init() {
   renderModel();
   await Promise.all([refreshSetup(), refreshProject()]);
   showUndo();
+  renderSummary();
 }
 init();
