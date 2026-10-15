@@ -1081,17 +1081,11 @@ bool setCpuFrequency(void)
 
     if (cpuFrequency == "160")
     { // 160 is the default
-      // No change needed
+        pm_config.max_freq_mhz = 160;
     }
     else if (cpuFrequency == "240")
     {
         pm_config.max_freq_mhz = 240;
-        pm_config.min_freq_mhz = pm_config.max_freq_mhz;
-        if (esp_pm_configure(&pm_config) != ESP_OK)
-        {
-            LogFile.WriteToFile(ESP_LOG_ERROR, TAG, "Failed to set new CPU frequency!");
-            return false;
-        }
     }
     else
     {
@@ -1100,9 +1094,20 @@ bool setCpuFrequency(void)
         return false;
     }
 
+    // Dynamic frequency scaling: idle at 80 MHz between rounds (less power and heat), the flow task
+    // holds an ESP_PM_CPU_FREQ_MAX lock while a round runs (task_autodoFlow). 80 MHz keeps APB at
+    // 80 MHz, so camera XCLK (LEDC), I2S, UART and SPI timings are unaffected.
+    pm_config.min_freq_mhz = 80;
+    if (esp_pm_configure(&pm_config) != ESP_OK)
+    {
+        LogFile.WriteToFile(ESP_LOG_ERROR, TAG, "Failed to set new CPU frequency!");
+        return false;
+    }
+
     if (esp_pm_get_configuration(&pm_config) == ESP_OK)
     {
-        LogFile.WriteToFile(ESP_LOG_INFO, TAG, string("CPU frequency: ") + to_string(pm_config.max_freq_mhz) + " MHz");
+        LogFile.WriteToFile(ESP_LOG_INFO, TAG, string("CPU frequency: ") + to_string(pm_config.max_freq_mhz) +
+                                                   " MHz (idle " + to_string(pm_config.min_freq_mhz) + " MHz)");
     }
 
     return true;
