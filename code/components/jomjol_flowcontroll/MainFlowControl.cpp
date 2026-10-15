@@ -4,6 +4,7 @@
 #include <vector>
 #include "string.h"
 #include "esp_log.h"
+#include "esp_pm.h"
 #include <esp_timer.h>
 
 #include <iomanip>
@@ -1676,8 +1677,21 @@ void task_autodoFlow(void *pvParameter)
         LogFile.WriteToFile(ESP_LOG_INFO, TAG, "Autostart is not enabled -> Not starting Flow");
     }
 
+    // Run rounds at full CPU speed; between rounds the CPU may drop to the idle frequency (see setCpuFrequency)
+    esp_pm_lock_handle_t cpuMaxLock = NULL;
+    if (esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "flow", &cpuMaxLock) != ESP_OK)
+    {
+        LogFile.WriteToFile(ESP_LOG_WARN, TAG, "Failed to create CPU frequency lock, rounds may run at idle frequency");
+        cpuMaxLock = NULL;
+    }
+
     while (autostartIsEnabled)
     {
+        if (cpuMaxLock)
+        {
+            esp_pm_lock_acquire(cpuMaxLock);
+        }
+
         LogFile.WriteToFile(ESP_LOG_DEBUG, TAG, "----------------------------------------------------------------"); // Clear separation between runs
         time_t roundStartTime = getUpTime();
 
@@ -1733,6 +1747,11 @@ void task_autodoFlow(void *pvParameter)
 #endif
 
         fr_delta_ms = (esp_timer_get_time() - fr_start) / 1000;
+
+        if (cpuMaxLock)
+        {
+            esp_pm_lock_release(cpuMaxLock);
+        }
 
         if (auto_interval > fr_delta_ms)
         {
