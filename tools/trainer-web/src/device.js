@@ -119,14 +119,14 @@ export async function writeConfigAndReboot(newText, onStatus = () => {}) {
 }
 
 /**
- * After a reboot: stay quiet for the boot window (requests during boot destabilised the
- * device before), then wait for a fresh reading. Returns /json.
+ * After a reboot: stay quiet for the first seconds of the boot (requests during boot
+ * destabilised the device before; 20 s covers it), then wait for a fresh reading. Returns /json.
  */
-export async function waitForReading(onStatus = () => {}, quietMs = 150000, maxMs = 12 * 60000) {
+export async function waitForReading(onStatus = () => {}, quietMs = 20000, maxMs = 12 * 60000) {
   const t0 = Date.now();
   while (Date.now() - t0 < quietMs) {
     onStatus(t("Device is restarting; waiting {n} s before asking it anything", { n: Math.ceil((quietMs - (Date.now() - t0)) / 1000) }));
-    await sleep(5000);
+    await sleep(Math.min(5000, Math.max(0, quietMs - (Date.now() - t0))));
   }
   let before = null;
   while (Date.now() - t0 < maxMs) {
