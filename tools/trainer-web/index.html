@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meter Model Trainer</title>
+<style>
+/* Layout: one column of numbered steps (the real order of the work); each step is a panel. */
+:root {
+  --bg: #f1f3f2; --panel: #ffffff; --ink: #18201d; --muted: #5b6862; --line: #d5dcd8;
+  --accent: #0f7b62;           /* go / primary */
+  --accent-ink: #ffffff;
+  --warn: #b7791f; --bad: #c0392b; --good: #2f855a;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #121715; --panel: #1a211e; --ink: #e3e9e6; --muted: #93a19a; --line: #2b3531;
+    --accent: #3fbf98; --accent-ink: #0b1311; --warn: #e0a84a; --bad: #ef6b5b; --good: #5cc28a; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 var(--sans); }
+.wrap { max-width: 980px; margin: 0 auto; padding: 18px 16px 60px; display: grid; gap: 14px; }
+header { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; justify-content: space-between; }
+h1 { font-size: 1.45rem; margin: 0; }
+.badges { display: flex; gap: 8px; flex-wrap: wrap; font: 12px var(--mono); color: var(--muted); }
+.badges span { border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; }
+.intro { color: var(--muted); margin: 0; max-width: 72ch; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 10px; min-width: 0; }
+section h2 { margin: 0; font-size: 1.05rem; display: flex; gap: 10px; align-items: baseline; }
+section h2 .n { font: 600 .8rem var(--mono); color: var(--accent); border: 1px solid var(--accent); border-radius: 50%; width: 1.6rem; height: 1.6rem; display: inline-grid; place-items: center; flex: none; }
+section[aria-disabled="true"] { opacity: .55; }
+p.hint { margin: 0; color: var(--muted); font-size: .9rem; max-width: 75ch; }
+p.note { margin: 0; font-size: .9rem; max-width: 75ch; border-left: 3px solid var(--warn); padding: 4px 10px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; }
+label.f { display: grid; gap: 3px; font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+input[type=number], input[type=text], select { font: 14px var(--sans); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; min-width: 0; }
+input[type=number] { width: 7rem; }
+button { font: 600 14px var(--sans); border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); padding: 8px 14px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button:disabled { opacity: .5; cursor: default; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.drop { border: 2px dashed var(--line); border-radius: 8px; padding: 18px; text-align: center; color: var(--muted); cursor: pointer; }
+.drop.over { border-color: var(--accent); color: var(--ink); }
+.bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.status { font: 13px var(--mono); color: var(--muted); min-height: 1.2em; white-space: pre-wrap; }
+.status.bad { color: var(--bad); }
+.tw { overflow-x: auto; }
+table { border-collapse: collapse; font-size: .85rem; font-variant-numeric: tabular-nums; }
+th, td { padding: 4px 10px 4px 0; text-align: right; white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: .72rem; letter-spacing: .04em; }
+th:first-child, td:first-child { text-align: left; }
+td.lo { color: var(--bad); font-weight: 600; } td.mid { color: var(--warn); } td.ok { color: var(--good); }
+canvas#chart { width: 100%; height: 140px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.legend { display: flex; gap: 14px; font-size: .78rem; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 3px; vertical-align: middle; margin-right: 4px; }
+a.dl { font-weight: 600; color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Meter model trainer</h1>
+    <div class="badges"><span id="bBackend">backend …</span><span id="bWhere"></span><span>v0.1 proof</span></div>
+  </header>
+  <p class="intro">Trains the digit model for AI-on-the-edge in this browser and exports a <code>.tflite</code> file the device can load. Nothing leaves this computer.</p>
+
+  <section id="sData">
+    <h2><span class="n">1</span>Load labelled crops</h2>
+    <p class="hint">A dataset zip with <code>labels.csv</code> (path, src, pos, label, split, ts) and the crop images. Labels are a digit, or two digits for a wheel between them (<code>7/8</code>).</p>
+    <div class="drop" id="drop" tabindex="0" role="button">Drop the dataset zip here, or click to choose it
+      <input type="file" id="file" accept=".zip" hidden>
+    </div>
+    <div class="bar"><i id="loadBar"></i></div>
+    <div class="status" id="loadStatus"></div>
+    <div class="tw" id="dataTable"></div>
+  </section>
+
+  <section id="sTrain" aria-disabled="true">
+    <h2><span class="n">2</span>Train</h2>
+    <div class="row">
+      <label class="f" for="size">Model size
+        <select id="size">
+          <option value="24,48,48|128,64" selected>Small · 3.0 M ops/digit</option>
+          <option value="32,64,64|128,64">Medium · 5.2 M ops/digit</option>
+          <option value="64,128,64|256,64">Large · 16 M ops/digit (slow on the device)</option>
+        </select>
+      </label>
+      <label class="f" for="epochs">Epochs <input type="number" id="epochs" value="60" min="1" max="300"></label>
+      <label class="f" for="batch">Batch <input type="number" id="batch" value="64" min="8" max="512" step="8"></label>
+      <label class="f" for="lr">Learning rate <input type="number" id="lr" value="0.001" step="0.0001" min="0.00001"></label>
+      <button class="primary" id="btnTrain" disabled>Start training</button>
+      <button id="btnStop" disabled>Stop</button>
+    </div>
+    <div class="bar"><i id="trainBar"></i></div>
+    <div class="status" id="trainStatus"></div>
+    <p class="note" id="trainNote" hidden>Training continues while this tab is in the background; progress shows in the tab title. Keep the tab open and don't let the computer sleep: sleep pauses it, and closing the tab loses the run.</p>
+    <canvas id="chart" width="900" height="140" aria-label="Loss per epoch"></canvas>
+    <div class="legend"><span><i style="background:var(--accent)"></i>train loss</span><span><i style="background:var(--warn)"></i>validation loss</span></div>
+  </section>
+
+  <section id="sEval" aria-disabled="true">
+    <h2><span class="n">3</span>Check on held-back crops</h2>
+    <p class="hint">Crops from the test split (the newest days) were never used for training. A transition crop counts as right when the model picks either of its two digits.</p>
+    <div class="tw" id="evalTable"></div>
+  </section>
+
+  <section id="sExport" aria-disabled="true">
+    <h2><span class="n">4</span>Export for the device</h2>
+    <div class="row">
+      <label class="f" for="fname">File name <input type="text" id="fname" size="34"></label>
+      <button class="primary" id="btnExport" disabled>Build .tflite</button>
+    </div>
+    <div class="status" id="exportStatus"></div>
+    <p class="hint">Upload the file to <code>/config/</code> on the device and select it as the digit model in the configuration. Keep the old model file until the new one has run for a day.</p>
+  </section>
+</div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
