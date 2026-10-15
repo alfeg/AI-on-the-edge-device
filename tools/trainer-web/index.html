@@ -21,6 +21,8 @@
     --accent: #3fbf98; --accent-ink: #0b1311; --accent-soft: #1f3a31; --warn: #e0a84a; --bad: #ef6b5b; --good: #5cc28a; --you: #63b3ed; color-scheme: dark; }
 }
 * { box-sizing: border-box; }
+/* keep the scrollbar's space reserved so switching between short and long steps doesn't shift the layout */
+html { scrollbar-gutter: stable; overflow-y: scroll; }
 [hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 var(--sans); }
 .wrap { max-width: 1040px; margin: 0 auto; padding: 16px 16px 240px; display: grid; gap: 12px; }
@@ -187,6 +189,7 @@ details > summary { cursor: pointer; }
           <button class="act" id="btnLlmTest">Test with one image</button>
         </div>
         <p class="hint">Ollama has to allow this page: start it with <code>OLLAMA_ORIGINS=<span class="origin"></span></code> (and <code>OLLAMA_HOST=0.0.0.0</code> when it runs on another computer). With an online service, the images you label are sent to it, and the key is stored in this browser.</p>
+        <p class="hint">The images are spread over all wheels and readings: readings with the fewest usable labels go first, then one image per reading in turn, from different days. Disagreements are asked about before unconfirmed images.</p>
         <div class="row">
           <label class="f" for="llmN">Images to label <input type="number" id="llmN" value="200" min="1" step="10"></label>
           <button class="primary act" id="btnLlm">Label with AI</button><button id="btnLlmStop" disabled>Stop</button>

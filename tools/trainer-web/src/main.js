@@ -320,12 +320,48 @@ $("llmBox").addEventListener("toggle", async () => {
   try { $("llmModels").innerHTML = (await llm.listModels(llmSettings())).map((m) => `<option value="${esc(m)}">`).join(""); } catch { /* shown on test */ }
 });
 
+// Which images to ask the AI about. The budget is spread over wheels and readings: images
+// are grouped like the collector does (wheel + device reading), groups with the fewest
+// usable labels go first, and each round takes one image per group (random within the
+// group, so different days and times of day). Disagreements come before unconfirmed
+// images within a group; already confirmed ones only when budget is left.
+const AI_TARGET = MIN_PER_DIGIT; // usable labels per group before the AI moves on
 function llmQueue(limit) {
   const s = llmSettings();
   const rank = { conflict: 0, unconfirmed: 1, confirmed: 2 };
-  return S.crops.filter((c) => { const r = S.labels.get(c.id); const e = S.eff.get(c.id); return !r?.human && !(r?.llm && r.llmModel === s.model) && e && e.status in rank; })
-    .sort((a, b) => rank[S.eff.get(a.id).status] - rank[S.eff.get(b.id).status] || (a.ts < b.ts ? 1 : -1))
-    .slice(0, limit);
+  const key = (c) => (c.pred != null ? groupOf(c.roi, c.pred, c.rejected) : `${c.roi}|${S.eff.get(c.id)?.label ?? "?"}`);
+  const usable = new Map(), groups = new Map();
+  for (const c of S.crops) {
+    const e = S.eff.get(c.id); if (!e) continue;
+    const k = key(c);
+    if (e.status === "human" || e.status === "confirmed") usable.set(k, (usable.get(k) || 0) + 1);
+    const r = S.labels.get(c.id);
+    if (r?.human || (r?.llm && r.llmModel === s.model) || !(e.status in rank)) continue;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(c);
+  }
+  for (const list of groups.values()) {
+    for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
+    list.sort((a, b) => rank[S.eff.get(a.id).status] - rank[S.eff.get(b.id).status]); // stable: random within a status
+  }
+  const order = [...groups.keys()].sort((a, b) => (usable.get(a) || 0) - (usable.get(b) || 0));
+  const out = [], taken = new Map();
+  for (const pass of ["needed", "rest"]) {
+    let added = true;
+    while (out.length < limit && added) {
+      added = false;
+      for (const k of order) {
+        if (out.length >= limit) break;
+        const list = groups.get(k), n = taken.get(k) || 0;
+        if (n >= list.length) continue;
+        if (pass === "needed" && ((usable.get(k) || 0) + n >= AI_TARGET || rank[S.eff.get(list[n].id).status] === 2)) continue;
+        out.push(list[n]); taken.set(k, n + 1); added = true;
+      }
+    }
+  }
+  out.groups = taken.size;
+  out.wheels = new Set(out.map((c) => c.roi)).size;
+  return out;
 }
 $("btnLlmTest").addEventListener("click", async () => {
   const c = llmQueue(1)[0] || S.crops[0];
@@ -341,6 +377,7 @@ async function runLlm(limit) {
   await store.kvSet("llm", s);
   const q = llmQueue(limit);
   if (!q.length) { status("llmStatus", "Nothing left to ask about."); return; }
+  status("llmStatus", `Asking about ${q.length} images from ${q.wheels} wheels and ${q.groups} different readings…`);
   const t0 = performance.now();
   let done = 0, failed = 0;
   for (const c of q) {
@@ -360,7 +397,7 @@ async function runLlm(limit) {
     status("llmStatus", `${done} of ${q.length} labelled${failed ? `, ${failed} failed` : ""}, ${per.toFixed(1)} s each, about ${Math.ceil(((q.length - done - failed) * per) / 60)} min left`);
     title(`AI labels ${done}/${q.length}`);
   }
-  status("llmStatus", `${S.stop ? "Stopped" : "Done"}: ${done} images labelled by ${s.model}${failed ? `, ${failed} failed` : ""}.`);
+  status("llmStatus", `${S.stop ? "Stopped" : "Done"}: ${done} images from ${q.wheels} wheels and ${q.groups} readings labelled by ${s.model}${failed ? `, ${failed} failed` : ""}.`);
   await refreshProject();
 }
 $("btnLlm").addEventListener("click", async () => {
