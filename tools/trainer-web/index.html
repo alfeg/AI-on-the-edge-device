@@ -5,44 +5,48 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Meter Model Trainer</title>
 <style>
-/* Layout: one column of numbered steps (the real order of the work); each step is a panel. */
+/* Layout: one column of numbered steps (the real order of the work), each a panel;
+   an "automatic run" bar on top runs them in sequence. */
 :root {
   --bg: #f1f3f2; --panel: #ffffff; --ink: #18201d; --muted: #5b6862; --line: #d5dcd8;
-  --accent: #0f7b62;           /* go / primary */
-  --accent-ink: #ffffff;
-  --warn: #b7791f; --bad: #c0392b; --good: #2f855a;
+  --accent: #0f7b62; --accent-ink: #ffffff;
+  --warn: #b7791f; --bad: #c0392b; --good: #2f855a; --you: #2b6cb0;
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #121715; --panel: #1a211e; --ink: #e3e9e6; --muted: #93a19a; --line: #2b3531;
-    --accent: #3fbf98; --accent-ink: #0b1311; --warn: #e0a84a; --bad: #ef6b5b; --good: #5cc28a; color-scheme: dark; }
+    --accent: #3fbf98; --accent-ink: #0b1311; --warn: #e0a84a; --bad: #ef6b5b; --good: #5cc28a; --you: #63b3ed; color-scheme: dark; }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 var(--sans); }
-.wrap { max-width: 980px; margin: 0 auto; padding: 18px 16px 60px; display: grid; gap: 14px; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 18px 16px 240px; display: grid; gap: 14px; }
 header { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; justify-content: space-between; }
 h1 { font-size: 1.45rem; margin: 0; }
 .badges { display: flex; gap: 8px; flex-wrap: wrap; font: 12px var(--mono); color: var(--muted); }
 .badges span { border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; }
-.intro { color: var(--muted); margin: 0; max-width: 72ch; }
+.intro { color: var(--muted); margin: 0; max-width: 75ch; }
 section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 10px; min-width: 0; }
-section h2 { margin: 0; font-size: 1.05rem; display: flex; gap: 10px; align-items: baseline; }
+section h2 { margin: 0; font-size: 1.05rem; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 section h2 .n { font: 600 .8rem var(--mono); color: var(--accent); border: 1px solid var(--accent); border-radius: 50%; width: 1.6rem; height: 1.6rem; display: inline-grid; place-items: center; flex: none; }
-section[aria-disabled="true"] { opacity: .55; }
-p.hint { margin: 0; color: var(--muted); font-size: .9rem; max-width: 75ch; }
-p.note { margin: 0; font-size: .9rem; max-width: 75ch; border-left: 3px solid var(--warn); padding: 4px 10px; }
+section h2 .pill { font: 500 .72rem var(--sans); text-transform: uppercase; letter-spacing: .05em; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
+.pill.ok { color: var(--good); border-color: var(--good); } .pill.warn { color: var(--warn); border-color: var(--warn); } .pill.bad { color: var(--bad); border-color: var(--bad); }
+section.auto { border-color: var(--accent); }
+p.hint { margin: 0; color: var(--muted); font-size: .9rem; max-width: 78ch; }
+p.note { margin: 0; font-size: .9rem; max-width: 78ch; border-left: 3px solid var(--warn); padding: 4px 10px; }
 .row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; }
 label.f { display: grid; gap: 3px; font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-input[type=number], input[type=text], select { font: 14px var(--sans); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; min-width: 0; }
-input[type=number] { width: 7rem; }
+label.c { display: inline-flex; gap: 6px; align-items: center; font-size: .9rem; }
+input[type=number], input[type=text], input[type=password], select { font: 14px var(--sans); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; min-width: 0; }
+input[type=number] { width: 6.5rem; }
+input.wide { width: min(22rem, 100%); }
 button { font: 600 14px var(--sans); border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); padding: 8px 14px; cursor: pointer; }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.danger { color: var(--bad); }
+button.small { padding: 4px 10px; font-size: 13px; }
 button:disabled { opacity: .5; cursor: default; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.drop { border: 2px dashed var(--line); border-radius: 8px; padding: 18px; text-align: center; color: var(--muted); cursor: pointer; }
-.drop.over { border-color: var(--accent); color: var(--ink); }
 .bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
 .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
 .status { font: 13px var(--mono); color: var(--muted); min-height: 1.2em; white-space: pre-wrap; }
@@ -53,10 +57,31 @@ th, td { padding: 4px 10px 4px 0; text-align: right; white-space: nowrap; }
 th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: .72rem; letter-spacing: .04em; }
 th:first-child, td:first-child { text-align: left; }
 td.lo { color: var(--bad); font-weight: 600; } td.mid { color: var(--warn); } td.ok { color: var(--good); }
-canvas#chart { width: 100%; height: 140px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+ul.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+ul.checks li { display: grid; grid-template-columns: 1.2rem 1fr auto; gap: 4px 10px; align-items: start; }
+ul.checks .dot { width: .7rem; height: .7rem; border-radius: 50%; margin-top: .4rem; background: var(--muted); }
+.lv-ok .dot { background: var(--good); } .lv-warn .dot { background: var(--warn); } .lv-block .dot { background: var(--bad); }
+ul.checks .t { font-weight: 600; } ul.checks .d { color: var(--muted); font-size: .88rem; grid-column: 2; }
+.confirm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .9rem; }
+canvas#chart { width: 100%; height: 130px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
 .legend { display: flex; gap: 14px; font-size: .78rem; color: var(--muted); }
 .legend i { display: inline-block; width: 10px; height: 3px; vertical-align: middle; margin-right: 4px; }
 a.dl { font-weight: 600; color: var(--accent); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; }
+.tile { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px; display: grid; gap: 2px; justify-items: center; cursor: pointer; color: inherit; font: inherit; }
+.tile img { width: 60px; height: 106px; object-fit: fill; border-radius: 3px; image-rendering: auto; }
+.tile .l { font: 600 .95rem var(--mono); }
+.tile .s { font-size: .64rem; color: var(--muted); text-align: center; line-height: 1.15; }
+.tile.st-human .l { color: var(--you); } .tile.st-conflict { border-color: var(--bad); } .tile.st-excluded .l { color: var(--bad); }
+.tile[aria-selected="true"] { outline: 3px solid var(--accent); outline-offset: 1px; }
+.drawer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: var(--panel); border-top: 2px solid var(--accent); padding: 10px 16px; }
+.drawer-in { max-width: 1040px; margin: 0 auto; display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: start; }
+.drawer img { width: 96px; height: 170px; object-fit: fill; border: 1px solid var(--line); border-radius: 4px; }
+.keys { display: flex; flex-wrap: wrap; gap: 5px; }
+.keys button { min-width: 2.5rem; padding: 5px 7px; font-family: var(--mono); }
+.keys button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.keys .sep { width: 100%; height: 0; }
+@media (max-width: 560px) { .drawer-in { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
 </style>
 </head>
@@ -64,59 +89,120 @@ a.dl { font-weight: 600; color: var(--accent); }
 <div class="wrap">
   <header>
     <h1>Meter model trainer</h1>
-    <div class="badges"><span id="bBackend">backend …</span><span id="bWhere"></span><span>v0.1 proof</span></div>
+    <div class="badges"><span id="bDevice">device …</span><span id="bBackend">backend …</span><span>v0.2</span></div>
   </header>
-  <p class="intro">Trains the digit model for AI-on-the-edge in this browser and exports a <code>.tflite</code> file the device can load. Nothing leaves this computer.</p>
+  <p class="intro">Collects the digit images this device saves, labels them, trains a better digit model in this browser and installs it on the device. Images stay in this browser; they only go to an AI server if you set one up in step 3.</p>
 
-  <section id="sData">
-    <h2><span class="n">1</span>Load labelled crops</h2>
-    <p class="hint">A dataset zip with <code>labels.csv</code> (path, src, pos, label, split, ts) and the crop images. Labels are a digit, or two digits for a wheel between them (<code>7/8</code>).</p>
-    <div class="drop" id="drop" tabindex="0" role="button">Drop the dataset zip here, or click to choose it
-      <input type="file" id="file" accept=".zip" hidden>
+  <section class="auto" id="sAuto">
+    <h2>Automatic run</h2>
+    <p class="hint">Runs steps 2 to 5 in order: collect new images, label them, train, and install the new model if it reads the held-back images at least as well as the current one.</p>
+    <div class="row">
+      <label class="c"><input type="checkbox" id="autoLlm"> Ask the AI server (step 3) to label up to <input type="number" id="autoLlmN" value="200" min="10" step="10"> images</label>
+      <label class="c"><input type="checkbox" id="autoInstall"> Install the new model when it is at least as good</label>
     </div>
-    <div class="bar"><i id="loadBar"></i></div>
-    <div class="status" id="loadStatus"></div>
-    <div class="tw" id="dataTable"></div>
+    <div class="row"><button class="primary act" id="btnAuto">Run all steps</button><button id="btnAutoStop" disabled>Stop</button></div>
+    <div class="status" id="autoStatus"></div>
+    <p class="note" id="bgNote" hidden>Work continues while this tab is in the background; progress shows in the tab title. Keep the tab open and the computer awake.</p>
   </section>
 
-  <section id="sTrain" aria-disabled="true">
-    <h2><span class="n">2</span>Train</h2>
+  <section id="sSetup">
+    <h2><span class="n">1</span>Device setup <span class="pill" id="setupPill">checking</span></h2>
+    <ul class="checks" id="checks"></ul>
+    <div class="status" id="setupStatus"></div>
+  </section>
+
+  <section id="sCollect">
+    <h2><span class="n">2</span>Collect images <span class="pill" id="collectPill">–</span></h2>
+    <p class="hint">Copies the digit images the device saved into this browser. Unchanged images of a wheel at rest are mostly skipped; every change and every in-between position is kept. The first run takes a while: the device sends about three images a second.</p>
+    <div class="row">
+      <label class="f" for="days">Days back <input type="number" id="days" value="7" min="1" max="60"></label>
+      <button class="primary act" id="btnCollect">Collect</button><button id="btnCollectStop" disabled>Stop</button>
+      <button class="small act" id="btnImport">Import a dataset zip…</button><input type="file" id="fileZip" accept=".zip" hidden>
+      <button class="small danger act" id="btnClear">Delete collected data…</button>
+    </div>
+    <div class="confirm" id="clearConfirm" hidden>Delete all images, labels and models stored in this browser? <button class="small danger" id="btnClearYes">Delete</button><button class="small" id="btnClearNo">Keep</button></div>
+    <div class="bar"><i id="collectBar"></i></div>
+    <div class="status" id="collectStatus"></div>
+  </section>
+
+  <section id="sLabels">
+    <h2><span class="n">3</span>Labels <span class="pill" id="labelsPill">–</span></h2>
+    <p class="hint">Each image gets the label its sources agree on: the device's own reading, a wheel that stayed the same for several readings, an AI model's answer, and your corrections (yours always win). Only images with two agreeing sources, or your label, are used for training.</p>
+    <div class="tw" id="coverage"></div>
+    <div class="status" id="verdict"></div>
+    <details id="llmBox">
+      <summary><b>AI labelling server</b> (Ollama or OpenAI-compatible)</summary>
+      <div class="row" style="margin-top:8px">
+        <label class="f" for="llmProvider">Type <select id="llmProvider"><option value="ollama">Ollama</option><option value="openai">OpenAI-compatible</option></select></label>
+        <label class="f" for="llmUrl">Address <input type="text" id="llmUrl" class="wide" value="http://localhost:11434"></label>
+        <label class="f" for="llmModel">Model <input type="text" id="llmModel" list="llmModels" value="gemma4:12b"><datalist id="llmModels"></datalist></label>
+        <label class="f" for="llmKey">API key <input type="password" id="llmKey" placeholder="not needed for Ollama" autocomplete="off"></label>
+        <button class="small act" id="btnLlmTest">Test with one image</button>
+      </div>
+      <p class="hint">Ollama has to allow this page: start it with <code>OLLAMA_ORIGINS=<span class="origin"></span></code> (and <code>OLLAMA_HOST=0.0.0.0</code> when it runs on another computer). With an online service, the images you label are sent to it, and the key is stored in this browser.</p>
+      <div class="row">
+        <label class="f" for="llmN">Images to label <input type="number" id="llmN" value="200" min="1" step="10"></label>
+        <button class="primary act" id="btnLlm">Label with AI</button><button id="btnLlmStop" disabled>Stop</button>
+      </div>
+      <div class="status" id="llmStatus"></div>
+    </details>
+    <h3 style="margin:6px 0 0;font-size:1rem">Review</h3>
+    <div class="row">
+      <label class="f" for="revRoi">Wheel <select id="revRoi"><option value="">All</option></select></label>
+      <label class="f" for="revStatus">Show <select id="revStatus">
+        <option value="review">Needs review</option><option value="conflict">Disagreements</option><option value="human">Labelled by you</option><option value="all">All</option></select></label>
+    </div>
+    <p class="hint">Keys: <b>0–9</b> digit · <b>T</b> then a digit for between two digits (T 6 = 6/7) · <b>X</b> unusable · <b>Backspace</b> remove your label · <b>← →</b> move · <b>Enter</b> accept the shown label.</p>
+    <div class="grid" id="revGrid" role="listbox" aria-label="Images to review"></div>
+    <button class="small" id="revMore" hidden>Show more</button>
+  </section>
+
+  <section id="sTrain">
+    <h2><span class="n">4</span>Train <span class="pill" id="trainPill">–</span></h2>
     <div class="row">
       <label class="f" for="size">Model size
         <select id="size">
           <option value="24,48,48|128,64" selected>Small · 3.0 M ops/digit</option>
-          <option value="32,64,64|128,64">Medium · 5.2 M ops/digit</option>
+          <option value="32,64,64|128,64">Medium · 5.1 M ops/digit</option>
           <option value="64,128,64|256,64">Large · 16 M ops/digit (slow on the device)</option>
         </select>
       </label>
       <label class="f" for="epochs">Epochs <input type="number" id="epochs" value="60" min="1" max="300"></label>
       <label class="f" for="batch">Batch <input type="number" id="batch" value="64" min="8" max="512" step="8"></label>
       <label class="f" for="lr">Learning rate <input type="number" id="lr" value="0.001" step="0.0001" min="0.00001"></label>
-      <button class="primary" id="btnTrain" disabled>Start training</button>
+      <label class="c"><input type="checkbox" id="useUnconfirmed"> Also train on unconfirmed labels</label>
+      <button class="primary act" id="btnTrain">Start training</button>
       <button id="btnStop" disabled>Stop</button>
     </div>
     <div class="bar"><i id="trainBar"></i></div>
     <div class="status" id="trainStatus"></div>
-    <p class="note" id="trainNote" hidden>Training continues while this tab is in the background; progress shows in the tab title. Keep the tab open and don't let the computer sleep: sleep pauses it, and closing the tab loses the run.</p>
-    <canvas id="chart" width="900" height="140" aria-label="Loss per epoch"></canvas>
-    <div class="legend"><span><i style="background:var(--accent)"></i>train loss</span><span><i style="background:var(--warn)"></i>validation loss</span></div>
-  </section>
-
-  <section id="sEval" aria-disabled="true">
-    <h2><span class="n">3</span>Check on held-back crops</h2>
-    <p class="hint">Crops from the test split (the newest days) were never used for training. A transition crop counts as right when the model picks either of its two digits.</p>
+    <canvas id="chart" width="900" height="130" aria-label="Loss per epoch"></canvas>
+    <div class="legend"><span><i style="background:var(--accent)"></i>training loss</span><span><i style="background:var(--warn)"></i>validation loss</span></div>
     <div class="tw" id="evalTable"></div>
   </section>
 
-  <section id="sExport" aria-disabled="true">
-    <h2><span class="n">4</span>Export for the device</h2>
+  <section id="sInstall">
+    <h2><span class="n">5</span>Install on the device <span class="pill" id="installPill">–</span></h2>
     <div class="row">
       <label class="f" for="fname">File name <input type="text" id="fname" size="34"></label>
-      <button class="primary" id="btnExport" disabled>Build .tflite</button>
+      <button class="primary act" id="btnInstall" disabled>Install and use this model</button>
+      <button class="small" id="btnDownload" disabled>Download .tflite</button>
+      <button class="small act" id="btnUndo" hidden>Go back to the previous model</button>
     </div>
-    <div class="status" id="exportStatus"></div>
-    <p class="hint">Upload the file to <code>/config/</code> on the device and select it as the digit model in the configuration. Keep the old model file until the new one has run for a day.</p>
+    <div class="confirm" id="installConfirm" hidden><span id="installConfirmText"></span><button class="small primary" id="btnInstallYes">Install</button><button class="small" id="btnInstallNo">Cancel</button></div>
+    <div class="status" id="installStatus"></div>
+    <p class="hint">Installing uploads the model to <code>/config/</code>, saves a copy of the configuration next to it, switches the digit model right after a reading round and restarts the device, then waits for its first reading. The previous model file stays on the card.</p>
   </section>
+</div>
+
+<div class="drawer" id="drawer" hidden>
+  <div class="drawer-in">
+    <img id="bigImg" alt="Selected image">
+    <div style="display:grid;gap:6px;min-width:0">
+      <div class="status" id="selInfo"></div>
+      <div class="keys" id="keys"></div>
+    </div>
+  </div>
 </div>
 <script type="module" src="/src/main.js"></script>
 </body>

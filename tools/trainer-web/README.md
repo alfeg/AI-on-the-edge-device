@@ -5,10 +5,29 @@ model in the browser and exports an int8 `.tflite` file the firmware loads. It c
 served from the device's SD card (`/html/trainer.html.gz`) or opened from disk. There are
 no CDN links, so it works on a network without internet access.
 
-Status: **proof of concept** (milestone 1 of the plan). It covers: load a labelled dataset
-zip → train → check on the held-back crops → export. Still to do: collecting crops from
-the device, readiness checks (image logging and retention), first labels from
-Ollama/OpenAI, the review page, deploying to the device, an in-browser int8 self-check.
+## What the page does (served from the device)
+
+1. **Device setup:** reads `config.ini` and checks that digit images are saved
+   (`ROIImagesLocation`) and kept long enough (`ROIImagesRetention`). One click fixes it:
+   the config is backed up to `/config/config_<ts>.ini.bak`, pushed right after a reading
+   round (MD5-checked) and the device restarts.
+2. **Collect:** copies crops from `/log/digit/<day>/<hour>/` into IndexedDB. The device's
+   reading is in each file name. Unchanged crops of a resting wheel are mostly skipped;
+   changes, in-between positions and rejected readings are kept. Resumable; finished hours
+   are remembered. A labelled dataset zip can be imported too.
+3. **Labels:** sources are the device reading, steady runs (≥4 identical readings), an AI
+   server (Ollama `/api/chat` or OpenAI-compatible `/v1/chat/completions`) and your
+   review. Two agreeing sources = confirmed. Only yours and confirmed labels train by
+   default. A coverage table and readiness verdict show what is missing. The review grid
+   has keyboard labelling.
+4. **Train:** in a Web Worker (keeps running in a background tab). The test split is the
+   newest days. The new model is compared with the installed one on the same test images
+   the device read, and only when there are at least 100 of them.
+5. **Install:** uploads the model to `/config/`, switches `[Digits] Model` after a round,
+   restarts the device, waits for the first reading; one-click undo.
+
+An **automatic run** does 2–5 in a row and installs only when the new model is at least as
+good on the same images.
 
 ## Build
 
@@ -16,6 +35,7 @@ Ollama/OpenAI, the review page, deploying to the device, an in-browser int8 self
 cd tools/trainer-web
 npm install
 npm run build          # -> dist/trainer.html and dist/trainer.html.gz
+DEVICE=http://<device-ip> npx vite preview   # dev: proxies the device API to localhost
 ```
 
 Upload `dist/trainer.html.gz` to `/html/` with the device's file manager, then open
@@ -57,6 +77,8 @@ tools/meter-replay/.venv/Scripts/python tools/trainer-web/scripts/compare_tflite
 
 # the built page end to end in headless Edge/Chrome (WebGL)
 node scripts/browser-check.mjs check-out/meters-dataset.zip check-out/browser_q.tflite 60
+# device workflow, read-only on the device (never installs): run vite preview with DEVICE first
+ZIP=check-out/meters-dataset.zip node scripts/ui-check.mjs http://localhost:4173/trainer.html 150 3 gemma4:12b
 ```
 
 ## Browser limits on `http://<device>` pages
