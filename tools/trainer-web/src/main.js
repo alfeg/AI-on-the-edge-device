@@ -59,8 +59,10 @@ function idle() { S.busy = null; $("bgNote").hidden = true; $("activity").hidden
 const STEPS = ["start", "setup", "collect", "labels", "train", "install"];
 const STEP_NAMES = { start: "Start", setup: "Device", collect: "Collect", labels: "Labels", train: "Train", install: "Install" };
 const STEP_PILL = { setup: "setupPill", collect: "collectPill", labels: "labelsPill", train: "trainPill", install: "installPill" };
+let currentStep = "start";
 function show(step) {
   if (!STEPS.includes(step)) step = "start";
+  currentStep = step;
   document.querySelectorAll("section[data-step]").forEach((sec) => { sec.hidden = sec.dataset.step !== step; });
   document.querySelectorAll("nav.steps button").forEach((b) => b.removeAttribute("aria-current"));
   document.querySelector(`nav.steps button[data-step="${step}"]`)?.setAttribute("aria-current", "step");
@@ -499,8 +501,9 @@ function cellCrops(roi, l) {
     return usableSt(e.status) && e.label === l;
   });
 }
-function reviewList() {
-  const roi = $("revRoi").value, st = $("revStatus").value, lab = $("revLabel").value;
+function reviewList(useFilters = true) {
+  const st = $("revStatus").value;
+  const roi = useFilters ? $("revRoi").value : "", lab = useFilters ? $("revLabel").value : "";
   return S.crops.filter((c) => {
     if (roi && c.roi !== roi) return false;
     const e = S.eff.get(c.id);
@@ -512,8 +515,80 @@ function reviewList() {
     return true;
   }).sort((a, b) => S.eff.get(a.id).score - S.eff.get(b.id).score || (a.ts < b.ts ? 1 : -1));
 }
+// ---- guided review: one wheel + label group at a time, empty groups skipped
+const labelOrder = (l) => { const i = LABELS.indexOf(l); return i < 0 ? 99 : i; };
+const groupKeyOf = (c) => `${c.roi}|${S.eff.get(c.id)?.label ?? "?"}`;
+function reviewGroups() {
+  const m = new Map();
+  for (const c of reviewList(false)) { const k = groupKeyOf(c); if (!m.has(k)) m.set(k, []); m.get(k).push(c); }
+  const keys = [...m.keys()].sort((a, b) => {
+    const [ra, la] = a.split("|"), [rb, lb] = b.split("|");
+    return ra.localeCompare(rb, undefined, { numeric: true }) || labelOrder(la) - labelOrder(lb);
+  });
+  return { keys, m };
+}
+const stillOpen = (c) => {
+  const st = $("revStatus").value, e = S.eff.get(c.id);
+  if (st === "review") return e.status === "unconfirmed" || e.status === "conflict";
+  if (st === "conflict") return e.status === "conflict";
+  return !S.labels.get(c.id)?.human;
+};
+function setGroup(key) {
+  rev.groupKey = key;
+  const [roi, lab] = key ? key.split("|") : ["", ""];
+  $("revRoi").value = roi; $("revLabel").value = lab === "?" ? "" : lab;
+}
+/** Move to the group dir (+1 / -1) steps from the current one, among groups with images. */
+function gotoGroup(dir) {
+  const { keys } = reviewGroups();
+  if (!keys.length) { setGroup(null); renderReview(true); return; }
+  const cmp = (a, b) => {
+    const [ra, la] = a.split("|"), [rb, lb] = b.split("|");
+    return ra.localeCompare(rb, undefined, { numeric: true }) || labelOrder(la) - labelOrder(lb);
+  };
+  let next;
+  if (!rev.groupKey) next = keys[0];
+  else if (dir > 0) next = keys.find((k) => cmp(k, rev.groupKey) > 0) ?? keys[0];
+  else next = [...keys].reverse().find((k) => cmp(k, rev.groupKey) < 0) ?? keys[keys.length - 1];
+  setGroup(next); renderReview(true);
+}
+function renderGroupBar() {
+  const bar = $("revGroupBar");
+  if (!$("revGuided").checked) { bar.hidden = true; return; }
+  bar.hidden = false;
+  const { keys } = reviewGroups();
+  const left = rev.list.filter(stillOpen).length;
+  const [roi, lab] = (rev.groupKey || "|").split("|");
+  const pos = rev.groupKey ? keys.indexOf(rev.groupKey) : -1;
+  $("revGroupText").innerHTML = rev.groupKey
+    ? `<b>${esc(roi)}</b> · shown as <b>${esc(lab)}</b> · ${left} of ${rev.list.length} still to check · group ${pos >= 0 ? pos + 1 : "–"} of ${keys.length}${pos < 0 ? " (done)" : ""}`
+    : keys.length ? "" : "Nothing left to review here.";
+  $("revAccept").textContent = lab && lab !== "?" ? `Approve all as ${lab} (${left})` : "Approve all";
+  $("revAccept").disabled = !left || lab === "?" || !lab;
+  $("revPrev").disabled = $("revNext").disabled = !keys.length;
+}
+async function acceptRest() {
+  const todo = rev.list.filter((c) => stillOpen(c) && S.eff.get(c.id)?.label);
+  if (!todo.length) return;
+  const recs = todo.map((c) => ({ ...(S.labels.get(c.id) || { id: c.id }), human: S.eff.get(c.id).label }));
+  await store.putLabels(recs);
+  recs.forEach((r, i) => { S.labels.set(r.id, r); S.eff.set(r.id, effective(todo[i], r, S.steady)); });
+  scheduleCoverage();
+  status("revStatusLine", `Approved ${todo.length} image${todo.length === 1 ? "" : "s"} of ${rev.groupKey.replace("|", " as ")}.`);
+  gotoGroup(+1);
+}
+
 function renderReview(reset) {
-  if (reset) { rev.list = reviewList(); rev.shown = REV_PAGE; rev.sel = -1; $("drawer").hidden = true; }
+  if (reset) {
+    if ($("revGuided").checked) {
+      const { keys, m } = reviewGroups();
+      if (!rev.groupKey || !m.has(rev.groupKey)) setGroup(keys.find((k) => !rev.groupKey || k > rev.groupKey) ?? keys[0] ?? null);
+      rev.list = rev.groupKey ? m.get(rev.groupKey) : [];
+      rev.list.sort((a, b) => (a.ts < b.ts ? -1 : 1));
+    } else rev.list = reviewList();
+    rev.shown = REV_PAGE; rev.sel = -1; $("drawer").hidden = true;
+  }
+  renderGroupBar();
   rev.urls.forEach((u) => URL.revokeObjectURL(u)); rev.urls = [];
   const g = $("revGrid"); g.textContent = "";
   rev.list.slice(0, rev.shown).forEach((c, k) => g.append(tile(c, k)));
@@ -572,13 +647,38 @@ async function setHuman(c, l) {
   const old = $("revGrid").querySelector(`[data-k="${rev.sel}"]`);
   if (old) old.replaceWith(tile(c, rev.sel));
   drawer();
+  if ($("revGuided").checked) {
+    renderGroupBar();
+    if (l !== null && !rev.list.some(stillOpen)) {
+      status("revStatusLine", `${rev.groupKey.replace("|", " · ")} done.`);
+      setTimeout(() => gotoGroup(+1), 500);
+    }
+  }
 }
-$("revRoi").addEventListener("change", () => renderReview(true));
-$("revLabel").addEventListener("change", () => renderReview(true));
-$("revStatus").addEventListener("change", () => renderReview(true));
+function filterChanged() {
+  if ($("revGuided").checked) {
+    const roi = $("revRoi").value, lab = $("revLabel").value;
+    const { keys } = reviewGroups();
+    setGroup(keys.find((k) => { const [r, l] = k.split("|"); return (!roi || r === roi) && (!lab || l === lab); }) ?? null);
+  }
+  renderReview(true);
+}
+$("revRoi").addEventListener("change", filterChanged);
+$("revLabel").addEventListener("change", filterChanged);
+$("revStatus").addEventListener("change", () => { rev.groupKey = null; renderReview(true); });
+$("revGuided").addEventListener("change", () => { rev.groupKey = null; if (!$("revGuided").checked) { $("revRoi").value = ""; $("revLabel").value = ""; } renderReview(true); });
+$("revPrev").addEventListener("click", () => gotoGroup(-1));
+$("revNext").addEventListener("click", () => gotoGroup(+1));
+$("revAccept").addEventListener("click", acceptRest);
 $("revMore").addEventListener("click", () => { rev.shown += REV_PAGE; renderReview(false); });
 document.addEventListener("keydown", (e) => {
-  if ($("drawer").hidden || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (currentStep === "labels" && $("revGuided").checked) {
+    if (e.key === "]" || e.key === "PageDown") { e.preventDefault(); gotoGroup(+1); return; }
+    if (e.key === "[" || e.key === "PageUp") { e.preventDefault(); gotoGroup(-1); return; }
+    if (e.key === "a" || e.key === "A") { e.preventDefault(); if (!$("revAccept").disabled) acceptRest(); return; }
+  }
+  if ($("drawer").hidden) return;
   const k = e.key, c = rev.list[rev.sel];
   const next = () => setTimeout(() => select(Math.min(rev.list.length - 1, rev.sel + 1)), 80);
   if (k === "ArrowRight" || k === "ArrowDown") { e.preventDefault(); select(Math.min(rev.list.length - 1, rev.sel + 1)); return; }
