@@ -9,7 +9,7 @@ Export a trained .keras model to an int8 .tflite that the firmware can run uncha
   - loads + invokes with ai_edge_litert; reports float-vs-int8 agreement on test crops
 
 Run: tools/meter-train/.venv/Scripts/python tools/meter-train/export.py
-       [--model device-logs/train/models/dig-meter.keras] [--out ...dig-meter_<date>_q.tflite]
+       [--model device-logs/train/models/dig-meter.keras] [--out ...dig-cont_<yyyymmddhhmm>_f<filters>_q.tflite]
 """
 import argparse
 import datetime
@@ -44,10 +44,12 @@ def main():
     ap.add_argument("--out", default=None)
     ap.add_argument("--n-rep", type=int, default=1000)
     a = ap.parse_args()
-    out = a.out or os.path.join(TRAIN_DIR, "models",
-                                f"dig-meter_{datetime.date.today():%Y%m%d}_q.tflite")
-
     model = keras.models.load_model(a.model)
+    # repo convention <type>_<version>_<size>_q (like dig-cont_0900_s3_q): version = UTC
+    # yyyymmddhhmm, size = first conv layer's filters (same names as the browser trainer)
+    filters = next(l for l in model.layers if isinstance(l, keras.layers.Conv2D)).filters
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M")
+    out = a.out or os.path.join(TRAIN_DIR, "models", f"dig-cont_{stamp}_f{filters}_q.tflite")
     d = np.load(a.data)
     tr = np.where((d["split"] == "train") & (d["W"] > 0))[0]
     rng = np.random.default_rng(0)
