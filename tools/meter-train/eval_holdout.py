@@ -20,7 +20,7 @@ Caveat: our labels were partly derived with dig-cont_0900, so it is favoured on 
 data. The fair comparison is test split + public test.
 
 Run: tools/meter-train/.venv/Scripts/python tools/meter-train/eval_holdout.py
-       --new device-logs/train/models/dig-cont_<yyyymmddhhmm>_f24_q.tflite
+       --new device-logs/train/models/dig-cont_<yyyymmddhhmm>_f24_n<images>_q.tflite
 """
 import argparse
 import csv

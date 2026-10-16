@@ -9,7 +9,7 @@ Export a trained .keras model to an int8 .tflite that the firmware can run uncha
   - loads + invokes with ai_edge_litert; reports float-vs-int8 agreement on test crops
 
 Run: tools/meter-train/.venv/Scripts/python tools/meter-train/export.py
-       [--model device-logs/train/models/dig-meter.keras] [--out ...dig-cont_<yyyymmddhhmm>_f<filters>_q.tflite]
+       [--model device-logs/train/models/dig-meter.keras] [--out ...dig-cont_<yyyymmddhhmm>_f<filters>_n<images>_q.tflite] [--n-train N]
 """
 import argparse
 import datetime
@@ -43,15 +43,19 @@ def main():
     ap.add_argument("--data", default=os.path.join(TRAIN_DIR, "data", "dataset.npz"))
     ap.add_argument("--out", default=None)
     ap.add_argument("--n-rep", type=int, default=1000)
+    ap.add_argument("--n-train", type=int, default=None,
+                    help="images the model was trained on, for the file name (default: the train split)")
     a = ap.parse_args()
     model = keras.models.load_model(a.model)
-    # repo convention <type>_<version>_<size>_q (like dig-cont_0900_s3_q): version = UTC
-    # yyyymmddhhmm, size = first conv layer's filters (same names as the browser trainer)
-    filters = next(l for l in model.layers if isinstance(l, keras.layers.Conv2D)).filters
-    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M")
-    out = a.out or os.path.join(TRAIN_DIR, "models", f"dig-cont_{stamp}_f{filters}_q.tflite")
     d = np.load(a.data)
     tr = np.where((d["split"] == "train") & (d["W"] > 0))[0]
+    # repo convention <type>_<version>_<size>_q (like dig-cont_0900_s3_q): version = UTC
+    # yyyymmddhhmm, size = first conv layer's filters, n = images trained on (same names as
+    # the browser trainer). train.py --sources trains on a subset: pass --n-train then.
+    filters = next(l for l in model.layers if isinstance(l, keras.layers.Conv2D)).filters
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M")
+    n_train = a.n_train or len(tr)
+    out = a.out or os.path.join(TRAIN_DIR, "models", f"dig-cont_{stamp}_f{filters}_n{n_train}_q.tflite")
     rng = np.random.default_rng(0)
     rep = d["X"][rng.choice(tr, min(a.n_rep, len(tr)), replace=False)].astype(np.float32)
 

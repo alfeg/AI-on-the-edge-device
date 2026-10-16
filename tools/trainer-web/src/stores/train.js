@@ -87,8 +87,9 @@ export async function runTrain() {
   }
   train.bar = 1;
   // export right away (calibration on 300 training images of the set the worker holds now)
-  // repo convention <type>_<version>_<size>_q (like dig-cont_0900_s3_q): version = UTC yyyymmddhhmm, size = first conv filters
-  const name = `dig-cont_${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")}_f${filters[0]}_q.tflite`;
+  // repo convention <type>_<version>_<size>_q (like dig-cont_0900_s3_q): version = UTC yyyymmddhhmm,
+  // size = first conv filters, then n = images the model was trained on
+  const name = `dig-cont_${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")}_f${filters[0]}_n${trainN}_q.tflite`;
   const ex = once("exported");
   worker.postMessage({ type: "export", name, calibIdx: calib });
   const { bytes } = await ex;

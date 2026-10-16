@@ -24,8 +24,8 @@ git clone --depth 1 --filter=blob:none --no-checkout https://github.com/jomjol/n
 PY=tools/meter-train/.venv/Scripts/python
 $PY tools/meter-train/prepare.py         # -> device-logs/train/data/dataset.npz + dataset_meta.csv
 $PY tools/meter-train/train.py           # -> device-logs/train/models/dig-meter.keras  (~5 min CPU)
-$PY tools/meter-train/export.py          # -> device-logs/train/models/dig-cont_<yyyymmddhhmm>_f24_q.tflite
-$PY tools/meter-train/eval_holdout.py --new device-logs/train/models/dig-cont_<yyyymmddhhmm>_f24_q.tflite
+$PY tools/meter-train/export.py          # -> device-logs/train/models/dig-cont_<yyyymmddhhmm>_f24_n<images>_q.tflite
+$PY tools/meter-train/eval_holdout.py --new device-logs/train/models/dig-cont_<yyyymmddhhmm>_f24_n<images>_q.tflite
 ```
 
 Full-history checks with the replay tools (these include training crops, so they are

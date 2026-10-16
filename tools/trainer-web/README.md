@@ -104,8 +104,9 @@ python tools/trainer-web/scripts/make_dataset_zip.py device-logs/train/data8d/da
   - Ops: QUANTIZE, CONV_2D, LEAKY_RELU, MAX_POOL_2D, RESHAPE, FULLY_CONNECTED, SOFTMAX, DEQUANTIZE. All are in `CTfLiteClass::MakeStaticResolver`.
   - Quantization: int8 per-channel conv weights, per-tensor FC weights, int32 biases, activations calibrated on 300 training crops.
   - Input and output stay float32, like the stock `dig-cont` models (DoubleHyprid10, 10 outputs).
-- **File name:** `dig-cont_<yyyymmddhhmm>_f<filters>_q.tflite` (UTC time, first conv layer's
-  filters), in the slot order of the stock models (`dig-cont_0900_s3_q.tflite`);
+- **File name:** `dig-cont_<yyyymmddhhmm>_f<filters>_n<images>_q.tflite` (UTC time, first
+  conv layer's filters, images trained on), in the slot order of the stock models
+  (`dig-cont_0900_s3_q.tflite`). Example: `dig-cont_202610161419_f24_n19359_q.tflite`;
   `tools/meter-train/export.py` names its models the same way.
 
 ## Checks
