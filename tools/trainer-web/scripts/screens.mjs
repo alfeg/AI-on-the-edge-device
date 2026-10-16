@@ -22,7 +22,7 @@ const go = (step) => page.click(`nav.steps button[data-step="${step}"]`);
 const shot = (name) => page.screenshot({ path: `${out}/${name}-${scheme}-${width}.png`, fullPage: true });
 if (process.env.COLLECT) {
   await go("collect");
-  await page.$eval("#days", (e) => { e.value = "1"; });
+  await page.$eval("#days", (e) => { e.value = "1"; e.dispatchEvent(new Event("input")); });
   await page.click("#btnScan");
   await wait(() => !document.getElementById("btnScan").disabled && /^(Checked|Проверено)/.test(document.getElementById("collectStatus").textContent));
   await page.click("#btnCollect");

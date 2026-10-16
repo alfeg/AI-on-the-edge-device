@@ -25,7 +25,7 @@ console.log((await txt("#checks")).split("\n").filter(Boolean).map((l) => "  " +
 // collect: scan, then download and stop after maxImg new images
 const go = (step) => page.click(`nav.steps button[data-step="${step}"]`);
 await go("collect");
-await page.$eval("#days", (e) => { e.value = "1"; });
+await page.$eval("#days", (e) => { e.value = "1"; e.dispatchEvent(new Event("input")); });
 await page.click("#btnScan");
 await wait(() => /^Checked|stopped|failed/.test(document.getElementById("collectStatus").textContent) && !document.getElementById("btnScan").disabled);
 console.log("scan:", await txt("#collectStatus"), "|", (await txt("#plan")).replace(/\n+/g, " | ").slice(0, 200));
@@ -42,11 +42,11 @@ console.log("review tiles:", await page.$$eval("#revGrid .tile", (t) => t.length
 
 if (llmModel) {
   await page.click("#llmBox summary");
-  await page.$eval("#llmModel", (e, v) => { e.value = v; e.dispatchEvent(new Event("change")); }, llmModel);
+  await page.$eval("#llmModel", (e, v) => { e.value = v; e.dispatchEvent(new Event("input")); e.dispatchEvent(new Event("change")); }, llmModel);
   await page.click("#btnLlmTest");
   await wait(() => !/^Asking/.test(document.getElementById("llmStatus").textContent) && document.getElementById("llmStatus").textContent);
   console.log("llm test:", await txt("#llmStatus"));
-  await page.$eval("#llmN", (e, v) => { e.value = v; }, process.env.LLM_N || "10");
+  await page.$eval("#llmN", (e, v) => { e.value = v; e.dispatchEvent(new Event("input")); }, process.env.LLM_N || "10");
   await page.click("#btnLlm");
   await wait(() => /^Done|^Stopped|could not|HTTP|Nothing/.test(document.getElementById("llmStatus").textContent));
   console.log("llm:", await txt("#llmStatus"));
@@ -69,7 +69,7 @@ if (process.env.ZIP) { // add a labelled dataset zip to the project
 }
 await wait(() => !document.getElementById("btnTrain").disabled); // previous task finished
 await go("train");
-await page.$eval("#epochs", (e, v) => { e.value = v; }, epochs);
+await page.$eval("#epochs", (e, v) => { e.value = v; e.dispatchEvent(new Event("input")); }, epochs);
 await page.click("#btnTrain");
 await wait(() => /^Done|failed/.test(document.getElementById("trainStatus").textContent));
 console.log("train:", await txt("#trainStatus"), "|", await txt("#trainPill"));

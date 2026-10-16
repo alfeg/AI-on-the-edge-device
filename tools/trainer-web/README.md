@@ -45,6 +45,25 @@ Upload `dist/trainer.html.gz` to `/html/` with the device's file manager, then o
 `http://<device>/trainer.html`. The firmware serves the `.gz` with
 `Content-Encoding: gzip` and caches it for 12 h, so reload hard after updating it.
 
+## Code layout
+
+The page is Vue 3 (`<script setup>` single-file components, no store library):
+
+- `src/ui/` — components. `App.vue` is the shell (header, step rail, sections); one
+  component per step in `steps/`, their parts in `labels/` and `train/`, shared bits
+  (status line, log, pill, crop image) in `common/`. `style.css` holds every style.
+- `src/app/` — state and actions per step, no markup: `state.js` (open step, the one
+  running task via `runTask`, status lines, step pills), `project.js` (crops and labels),
+  then `setup`, `collecting`, `ai`, `review`, `training`, `installing`, `exporting`, `auto`.
+  Crops and labels are large, so `project.js` keeps them outside Vue's reactivity and
+  bumps a `rev` counter when they change.
+- `src/*.js` — plain modules with no UI: device access, browser storage, labels,
+  readiness, the TensorFlow.js worker and the TFLite exporter.
+
+Text: `t("English text", vars)` everywhere, `tHtml(key, html)` for text with markup and
+`N_("...")` for English kept in data; `node scripts/i18n-keys.mjs` lists what
+`src/i18n-ru.js` is missing.
+
 ## Dataset zip
 
 ```

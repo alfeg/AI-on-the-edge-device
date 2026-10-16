@@ -2,9 +2,9 @@
 // English text, so the code stays readable: t(english, vars) with {name} placeholders. The choice is
 // kept in this browser; without one, the browser's language list decides (first en/ru in it).
 //
-// Static text in index.html is translated once at start: text nodes and the placeholder /
-// aria-label / title attributes by their English text, and elements with markup inside by
-// data-i18n="<key>" (their Russian HTML is under that key).
+// Text with markup inside (bold keys, <code>) is tHtml(key, englishHtml); its Russian HTML
+// is under "@<key>". English strings kept in data and translated later are marked N_("...")
+// so scripts/i18n-keys.mjs finds them.
 import RU from "./i18n-ru.js";
 
 const KEY = "trainer-lang";
@@ -26,32 +26,19 @@ export function setLang(lang) {
   location.reload();
 }
 
+const fill = (s, vars) => (vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s);
+
 /** Translated text with {name} placeholders filled from vars. */
 export function t(en, vars) {
-  let s = LANG === "en" ? en : (RU[en] ?? en);
-  if (vars) s = s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
-  return s;
+  return fill(LANG === "en" ? en : (RU[en] ?? en), vars);
 }
 
-const norm = (s) => s.replace(/\s+/g, " ").trim();
-const ATTRS = ["placeholder", "aria-label", "title", "alt"];
-
-/** Translate the static page (call once, before scripts fill in dynamic text). */
-export function translatePage(root = document.body) {
-  document.documentElement.lang = LANG;
-  if (LANG === "en") return;
-  document.title = t(document.title);
-  root.querySelectorAll("[data-i18n]").forEach((el) => { const h = RU[`@${el.dataset.i18n}`]; if (h) el.innerHTML = h; });
-  const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode: (n) => (n.parentElement.closest("script,style,code,[data-i18n]") || !n.nodeValue.trim() ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
-  });
-  const nodes = [];
-  while (walk.nextNode()) nodes.push(walk.currentNode);
-  for (const n of nodes) {
-    const k = norm(n.nodeValue), ru = RU[k];
-    if (ru) n.nodeValue = n.nodeValue.replace(/^(\s*)[\s\S]*?(\s*)$/, `$1${ru}$2`);
-  }
-  root.querySelectorAll(ATTRS.map((a) => `[${a}]`).join(",")).forEach((el) => {
-    for (const a of ATTRS) { const v = el.getAttribute(a); if (v && RU[norm(v)]) el.setAttribute(a, RU[norm(v)]); }
-  });
+/** Translated HTML (for v-html): vars are escaped, the markup comes from this file and i18n-ru.js only. */
+export function tHtml(key, en, vars) {
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const safe = vars && Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, esc(v)]));
+  return fill(LANG === "en" ? en : (RU[`@${key}`] ?? en), safe);
 }
+
+/** Marks an English string that is translated later, where it is shown. */
+export const N_ = (en) => en;

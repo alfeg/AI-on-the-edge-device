@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import vue from "@vitejs/plugin-vue";
 import { viteSingleFile } from "vite-plugin-singlefile";
 
 // One self-contained trainer.html (scripts and styles inlined, no CDN), so it can be
@@ -12,7 +13,9 @@ const proxy = device
   : undefined;
 
 export default defineConfig({
-  plugins: [viteSingleFile()],
+  plugins: [vue(), viteSingleFile()],
+  // components use <script setup> only: leave the Options API out of the bundle
+  define: { __VUE_OPTIONS_API__: false, __VUE_PROD_DEVTOOLS__: false, __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: false },
   server: { proxy },
   preview: { proxy },
   build: {
