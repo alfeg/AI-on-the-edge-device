@@ -7,9 +7,9 @@ import path from "node:path";
 import jpeg from "jpeg-js";
 import * as tf from "@tensorflow/tfjs-core";
 import "@tensorflow/tfjs-backend-cpu";
-import { loadDatasetZip, PIX } from "../src/dataset.js";
-import { buildModel, train, predict, modelSpec } from "../src/model.js";
-import { exportTflite } from "../src/tflite/export.js";
+import { loadDatasetZip, PIX } from "../src/lib/dataset.js";
+import { buildModel, train, predict, modelSpec } from "../src/lib/model.js";
+import { exportTflite } from "../src/lib/tflite/export.js";
 
 const [zipPath, outDir, nTrainArg, epochsArg] = process.argv.slice(2);
 const nTrain = +(nTrainArg || 1500), epochs = +(epochsArg || 2);

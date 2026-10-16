@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { viteSingleFile } from "vite-plugin-singlefile";
@@ -22,6 +23,8 @@ const proxy = device
 
 export default defineConfig({
   plugins: [vue(), viteSingleFile()],
+  // @/ = src/ (components and stores; plain modules import relatively so Node scripts can run them)
+  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   // components use <script setup> only: leave the Options API out of the bundle
   define: { __VUE_OPTIONS_API__: false, __VUE_PROD_DEVTOOLS__: false, __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: false },
   server: { proxy },

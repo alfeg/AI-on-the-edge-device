@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Exporter cross-check, step 1: train the trainer-web architecture in Keras, then write
-  <out>/weights.json   raw weights in the layout src/tflite/export.js expects
+  <out>/weights.json   raw weights in the layout src/lib/tflite/export.js expects
   <out>/calib.json     calibration crops (raw 0..255, HWC) for the JS exporter
   <out>/test.npz       test crops + labels for compare_tflite.py
   <out>/tfconv_q.tflite  the same network through the official TFLite converter (int8)

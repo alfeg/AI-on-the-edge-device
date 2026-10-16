@@ -49,20 +49,36 @@ Upload `dist/trainer.html.gz` to `/html/` with the device's file manager, then o
 
 The page is Vue 3 (`<script setup>` single-file components, no store library):
 
-- `src/ui/` — components. `App.vue` is the shell (header, step rail, sections); one
-  component per step in `steps/`, their parts in `labels/` and `train/`, shared bits
-  (status line, log, pill, crop image) in `common/`. `style.css` holds every style.
-- `src/app/` — state and actions per step, no markup: `state.js` (open step, the one
-  running task via `runTask`, status lines, step pills), `project.js` (crops and labels),
-  then `setup`, `collecting`, `ai`, `review`, `training`, `installing`, `exporting`, `auto`.
-  Crops and labels are large, so `project.js` keeps them outside Vue's reactivity and
-  bumps a `rev` counter when they change.
-- `src/*.js` — plain modules with no UI: device access, browser storage, labels,
-  readiness, the TensorFlow.js worker and the TFLite exporter.
+```
+src/
+  main.js, App.vue   entry and shell (header, step rail, one section per step)
+  views/             one screen per step: StartView … InstallView
+  components/        Base* = generic parts (status line, log, progress bar, crop image);
+                     labels/Labels*, train/Train* = parts of one view; StepPill, StepNav
+  stores/            shared state + actions, no markup (see below)
+  services/          outside the page: device HTTP API, IndexedDB (db.js), AI server,
+                     the device image collector
+  lib/               pure logic, also run by Node scripts: dataset, labels, readiness,
+                     train set, model, TFLite exporter (lib/tflite/)
+  workers/           train.worker.js: TensorFlow.js training off the main thread
+  i18n/              t() / tHtml() (index.js), Russian texts (ru.js), hint texts (hints.js)
+  plugins/           hintTooltip.js: the shared tooltip for [data-hint] elements
+  utils/             formatting, md5
+  assets/            main.css (all styles), fonts
+```
+
+- Stores: `app.js` holds the open step, the one running task (`runTask`), status lines
+  and step pills; `project.js` the crops and labels; then one per step (`setup`,
+  `collect`, `ai`, `review`, `train`, `install`, `auto`, `datasetExport`). Crops and
+  labels are large, so `project.js` keeps them outside Vue's reactivity and bumps a
+  `rev` counter when they change.
+- Imports: `@/` (= `src/`) in components and stores; `lib/`, `services/`, `i18n/` and
+  `utils/` import each other relatively, so Node scripts (`scripts/node-check.mjs`) can
+  load them without Vite.
 
 Text: `t("English text", vars)` everywhere, `tHtml(key, html)` for text with markup and
 `N_("...")` for English kept in data; `node scripts/i18n-keys.mjs` lists what
-`src/i18n-ru.js` is missing.
+`src/i18n/ru.js` is missing.
 
 ## Dataset zip
 
@@ -84,7 +100,7 @@ python tools/trainer-web/scripts/make_dataset_zip.py device-logs/train/data8d/da
 - **Network:** the "small" preset matches the deployed f24 model (conv 24/48/48, dense 128/64, about 3 M multiply-adds per digit).
   - Each conv block is Conv3x3 → BatchNorm → LeakyReLU(0.3) → MaxPool.
   - BatchNorm and the input scale (1/255) are folded into the conv weights at export.
-- **Export** (`src/tflite/export.js` + `writer.js`): writes the TFLite flatbuffer directly.
+- **Export** (`src/lib/tflite/export.js` + `writer.js`): writes the TFLite flatbuffer directly.
   - Ops: QUANTIZE, CONV_2D, LEAKY_RELU, MAX_POOL_2D, RESHAPE, FULLY_CONNECTED, SOFTMAX, DEQUANTIZE. All are in `CTfLiteClass::MakeStaticResolver`.
   - Quantization: int8 per-channel conv weights, per-tensor FC weights, int32 biases, activations calibrated on 300 training crops.
   - Input and output stay float32, like the stock `dig-cont` models (DoubleHyprid10, 10 outputs).

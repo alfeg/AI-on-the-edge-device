@@ -1,11 +1,10 @@
-// Entry point. The page is Vue components (src/ui/), their state and actions (src/app/),
-// and the plain modules underneath: device access (device.js), browser storage (store.js),
-// labels and readiness, and TensorFlow.js training in a Web Worker (worker.js).
-import "./fonts.css";
-import "./ui/style.css";
+// Entry point: mounts App.vue with the hint tooltip. Layout of src/ in README.md.
+import "@/assets/fonts.css";
+import "@/assets/main.css";
 import { createApp } from "vue";
-import { LANG } from "./i18n.js";
-import App from "./ui/App.vue";
+import { LANG } from "@/i18n/index.js";
+import App from "@/App.vue";
+import hintTooltip from "@/plugins/hintTooltip.js";
 
 document.documentElement.lang = LANG;
-createApp(App).mount("#app");
+createApp(App).use(hintTooltip).mount("#app");

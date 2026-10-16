@@ -3,7 +3,7 @@
 //   node tools/trainer-web/scripts/export-from-json.mjs tools/trainer-web/check-out
 import fs from "node:fs";
 import path from "node:path";
-import { exportTflite } from "../src/tflite/export.js";
+import { exportTflite } from "../src/lib/tflite/export.js";
 
 const dir = process.argv[2] || "check-out";
 const w = JSON.parse(fs.readFileSync(path.join(dir, "weights.json"), "utf8"));
