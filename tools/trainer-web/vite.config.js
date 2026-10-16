@@ -8,8 +8,16 @@ import { viteSingleFile } from "vite-plugin-singlefile";
 // For development, DEVICE=http://<device-ip> npm run dev (or vite preview) proxies the
 // device API, so the page behaves as if the device served it.
 const device = process.env.DEVICE;
+// The ESP32's HTTP server rejects large request headers (431, or a reset connection), and a
+// browser on localhost sends the cookies of every other local app: forward only what the
+// device API needs.
+const KEEP = new Set(["host", "content-type", "content-length", "accept", "connection"]);
+const slimHeaders = (proxyServer) => proxyServer.on("proxyReq", (req) => {
+  for (const h of req.getHeaderNames()) if (!KEEP.has(h)) req.removeHeader(h);
+});
 const proxy = device
-  ? Object.fromEntries(["/fileserver", "/statusflow", "/json", "/info", "/upload", "/delete", "/reboot"].map((p) => [p, { target: device, changeOrigin: true }]))
+  ? Object.fromEntries(["/fileserver", "/statusflow", "/json", "/info", "/upload", "/delete", "/reboot"]
+    .map((p) => [p, { target: device, changeOrigin: true, configure: slimHeaders }]))
   : undefined;
 
 export default defineConfig({
