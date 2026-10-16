@@ -104,7 +104,7 @@ export default {
   "Round finished ({round}). Writing the new configuration…": "Цикл завершён ({round}). Запись новой конфигурации…",
   "Configuration written and checked (MD5). Restarting the device…": "Конфигурация записана и проверена (MD5). Перезапуск устройства…",
   "Device is restarting; waiting {n} s before asking it anything": "Устройство перезапускается; следующий запрос через {n} с",
-  "Device answers again (last reading {ts}). Waiting for a new reading…": "Устройство снова отвечает (последнее показание {ts}). Ожидание нового показания…",
+  "Device answers again ({s}). Waiting for its first reading…": "Устройство снова отвечает ({s}). Ожидание первого показания…",
   "Waiting for the device to answer…": "Ожидание ответа устройства…",
   "no reading round finished within 6 minutes": "за 6 минут не завершился ни один цикл считывания",
   "no new reading within 12 minutes of the restart": "нет нового показания в течение 12 минут после перезапуска",

@@ -119,25 +119,24 @@ export async function writeConfigAndReboot(newText, onStatus = () => {}) {
 }
 
 /**
- * After a reboot: stay quiet for the first seconds of the boot (requests during boot
- * destabilised the device before; 20 s covers it), then wait for a fresh reading. Returns /json.
+ * After a reboot: stay quiet for the first 40 s of the boot, then ask only /statusflow until
+ * the first reading round has finished, and read /json only then. The firmware answers
+ * /json during start-up from a reading pipeline that does not exist yet and crashes; after a
+ * crash it delays the start further, so polling /json early kept the device in a crash loop.
+ * Returns /json.
  */
-export async function waitForReading(onStatus = () => {}, quietMs = 20000, maxMs = 12 * 60000) {
+export async function waitForReading(onStatus = () => {}, quietMs = 40000, maxMs = 12 * 60000) {
   const t0 = Date.now();
   while (Date.now() - t0 < quietMs) {
     onStatus(t("Device is restarting; waiting {n} s before asking it anything", { n: Math.ceil((quietMs - (Date.now() - t0)) / 1000) }));
     await sleep(Math.min(5000, Math.max(0, quietMs - (Date.now() - t0))));
   }
-  let before = null;
   while (Date.now() - t0 < maxMs) {
-    try {
-      const v = await readValue();
-      const ts = Object.values(v)[0]?.timestamp;
-      if (before === null) { before = ts; onStatus(t("Device answers again (last reading {ts}). Waiting for a new reading…", { ts })); }
-      else if (ts !== before) return v;
-    } catch {
-      onStatus(t("Waiting for the device to answer…"));
-    }
+    let s = null;
+    try { s = await statusFlow(); } catch { /* not answering yet */ }
+    if (s === null) onStatus(t("Waiting for the device to answer…"));
+    else if (s.startsWith("Flow finished")) return readValue();
+    else onStatus(t("Device answers again ({s}). Waiting for its first reading…", { s }));
     await sleep(10000);
   }
   throw new Error(t("no new reading within 12 minutes of the restart"));
