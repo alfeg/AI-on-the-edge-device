@@ -66,7 +66,10 @@ def main():
 
     # predictions: name -> list of position (float) or None
     preds = {"device": [None if r["cnn"] in ("", "10") else float(r["cnn"]) for r in rows]}
-    imgs = [Image.open(r["path"]) for r in rows]
+    imgs = []
+    for r in rows:
+        with Image.open(r["path"]) as im:
+            imgs.append(im.convert("RGB"))
     for m, n in zip(models, names[1:]):
         preds[n] = [m.predict(im)[0] for im in imgs]
 

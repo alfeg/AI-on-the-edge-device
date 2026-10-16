@@ -124,6 +124,7 @@ def main():
     ap.add_argument("device_dir")
     ap.add_argument("models", nargs="*")
     ap.add_argument("--decimal-shift", type=int, default=-2)
+    ap.add_argument("--positions", type=int, default=0, help="use only the first N wheels of each cycle")
     ap.add_argument("--good-threshold", type=float, default=0.5, help="CNNGoodThreshold for DoubleHyprid10")
     ap.add_argument("--max-rate", type=float, default=0.02)
     ap.add_argument("--slack", type=float, default=0.02)
@@ -137,13 +138,16 @@ def main():
     cfg = ap.parse_args()
 
     cycles, npos = cycles_from_crops(cfg.device_dir)
+    if cfg.positions:  # assemble only the first N wheels (same cycles, e.g. 7 vs 8 digits)
+        npos = cfg.positions
     times = [datetime.strptime(ts, "%Y%m%d-%H%M%S") for ts, _ in cycles]
     sources = {}
 
     # device's own logged classes
     vals = []
     for ts, c in cycles:
-        fl = [None if int(c[p]["cnn"]) >= 10 else float(c[p]["cnn"]) for p in range(1, npos + 1)]
+        # wheels the device never read (crops cut from raw images by extract_rois.py) have no class
+        fl = [None if int(c[p]["cnn"] or 10) >= 10 else float(c[p]["cnn"]) for p in range(1, npos + 1)]
         vals.append(to_value(assemble(fl, "Digit"), cfg.decimal_shift))
     sources["device-cnn"] = vals
 

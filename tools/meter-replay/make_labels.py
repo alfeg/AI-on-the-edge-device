@@ -9,6 +9,8 @@ Evidence per crop:
   cnn        the device's own class (file-name prefix), 10 = N
 
 Rules (first match wins):
+  0. human label in labels/manual_*.csv (path,label)              -> that label     [high / transition]
+     label "x" = unusable crop (occluded, misaligned)             ->                [excluded]
   1. consensus present and (teacher agrees or cont agrees)        -> consensus      [high]
   2. teacher single digit == cont digit                           -> that digit     [high]
   3. teacher "a/b" and cont position within 0.3 of the a/b boundary -> "a/b"       [transition]
@@ -47,6 +49,11 @@ def main():
         for r in csv.DictReader(open(cp, newline="")):
             if r["value"] != "":
                 cont[r["path"]] = float(r["value"])
+    manual = {}
+    for fn in sorted(os.listdir(L)):
+        if fn.startswith("manual_") and fn.endswith(".csv"):
+            for r in csv.DictReader(open(os.path.join(L, fn), newline="")):
+                manual[r["path"]] = r["label"].strip()
 
     out, review = [], []
     q = Counter()
@@ -73,6 +80,9 @@ def main():
             label, qual = cnn, "medium"
         if not t and not cons:
             qual = "unlabelled"  # teacher not run on this crop (e.g. slow wheel without consensus)
+        if p in manual:
+            m = manual[p]
+            label, qual = ("", "excluded") if m == "x" else (m, "transition" if "/" in m else "high")
         q[(r["pos"], qual)] += 1
         row = {"path": p, "pos": r["pos"], "label": label, "quality": qual, "consensus": cons,
                "teacher": t, "cont": "" if cv is None else f"{cv:.2f}", "cnn": r["cnn"]}
