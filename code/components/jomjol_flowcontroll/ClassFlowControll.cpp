@@ -929,11 +929,17 @@ esp_err_t ClassFlowControll::GetJPGStream(std::string _fn, httpd_req_t *req)
 
 string ClassFlowControll::getNumbersName()
 {
+    if (flowpostprocessing == NULL) // not set up yet
+        return "";
+
     return flowpostprocessing->getNumbersName();
 }
 
 string ClassFlowControll::getJSON()
 {
+    if (flowpostprocessing == NULL) // not set up yet (start-up, or delayed start after a crash)
+        return "";
+
     return flowpostprocessing->GetJSON();
 }
 
@@ -942,5 +948,9 @@ string ClassFlowControll::getJSON()
  **/
 const std::vector<NumberPost*> &ClassFlowControll::getNumbers()
 {
+    static const std::vector<NumberPost*> none;
+    if (flowpostprocessing == NULL) // not set up yet
+        return none;
+
     return *flowpostprocessing->GetNumbers();
 }
