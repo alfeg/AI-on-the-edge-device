@@ -260,7 +260,13 @@ double pow10_double(int pot)
 		100000000.0,
 		1000000000.0};
 
-	if (pot >= 0 && pot < (int)(sizeof(pow10_table) / sizeof(pow10_table[0])))
+	if (pot < 0)
+	{
+		// Negative exponents are used for decimal places (ErsetzteN, checkDigitConsistency with DecimalShift < 0)
+		return 1.0 / pow10_double(-pot);
+	}
+
+	if (pot < (int)(sizeof(pow10_table) / sizeof(pow10_table[0])))
 	{
 		return pow10_table[pot];
 	}
