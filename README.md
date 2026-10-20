@@ -205,6 +205,12 @@ See the [Changelog](Changelog.md) for detailed information.
 ## Build It Yourself 🔨
 See the [Build Instructions](code/README.md) for step-by-step guidance.
 
+Don't want to install PlatformIO and the ESP32 toolchain? Build in Docker instead — all you need is a clone of this repository and Docker:
+```
+docker build --output build-output .
+```
+See [Build with Docker](code/README.md#build-with-docker) for details.
+
 ---
 
 <br>

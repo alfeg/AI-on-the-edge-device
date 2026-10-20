@@ -1,0 +1,22 @@
+# .git/ is intentionally NOT excluded: the build needs it for
+# `git submodule update` and for the firmware/web UI version string.
+
+# Build outputs
+code/.pio/
+code/.pioenvs/
+build-output/
+html/
+demo/
+update/
+
+# Local ESP-IDF component-manager state (holds host-specific absolute
+# paths); the build inside the container resolves components itself.
+code/managed_components/
+code/dependencies.lock
+
+# IDE / OS noise
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
